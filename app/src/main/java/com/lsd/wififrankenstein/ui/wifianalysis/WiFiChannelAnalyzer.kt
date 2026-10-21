@@ -8,6 +8,11 @@ object NetworkFrequencyAnalyzer {
 
     private const val STRONG_SIGNAL_THRESHOLD_DBM = -50
 
+    // A network sharing the serving channel hurts more than a neighbour spilling over.
+    private const val CO_CHANNEL_PENALTY = 12
+    private const val STRONG_SIGNAL_PENALTY = 5
+    private const val ADJACENT_CHANNEL_PENALTY = 5
+
     private val CHANNEL_2GHZ_MAP = mapOf(
         1 to 2412, 2 to 2417, 3 to 2422, 4 to 2427, 5 to 2432, 6 to 2437,
         7 to 2442, 8 to 2447, 9 to 2452, 10 to 2457, 11 to 2462, 12 to 2467,
@@ -77,7 +82,8 @@ object NetworkFrequencyAnalyzer {
         return availableChannels.map { channelNum ->
             val channelNetworks = channelGroups[channelNum] ?: emptyList()
             val frequency = getFrequencyForChannel(channelNum, band)
-            val interferingNetworks = findInterferingNetworks(channelNum, band, networks)
+            val interferingNetworks =
+                findOverlappingNeighbourNetworks(channelNum, band, networks)
             val strongCount =
                 channelNetworks.count { it.scanResult.level >= STRONG_SIGNAL_THRESHOLD_DBM }
             val utilization = calculateChannelUtilization(channelNetworks, networks.size)
@@ -102,29 +108,45 @@ object NetworkFrequencyAnalyzer {
         band: FrequencyBand,
         allNetworks: List<NetworkChannelInfo>
     ): List<NetworkChannelInfo> {
+        // Co-channel access points interfere just as much as overlapping neighbours, so the
+        // 'channel != targetChannel' shortcut is deliberately gone: a channel shared by six
+        // strong APs must not be reported as interference-free.
         return when (band) {
             FrequencyBand.GHZ_2_4 -> {
                 allNetworks.filter { network ->
-                    network.channel != targetChannel &&
-                            networksOverlap2GHz(
-                                targetChannel,
-                                network.channel,
-                                network.channelWidth
-                            )
+                    networksOverlap2GHz(
+                        targetChannel,
+                        network.channel,
+                        network.channelWidth
+                    )
                 }
             }
 
             FrequencyBand.GHZ_5, FrequencyBand.GHZ_6 -> {
                 allNetworks.filter { network ->
-                    network.channel != targetChannel &&
-                            networksOverlap5GHz(
-                                targetChannel,
-                                network.channel,
-                                network.channelWidth
-                            )
+                    networksOverlap5GHz(
+                        targetChannel,
+                        network.channel,
+                        network.channelWidth
+                    )
                 }
             }
         }
+    }
+
+    /**
+     * Networks that sit on neighbouring channels and spill into [targetChannel].
+     * Co-channel networks are excluded here because they are already exposed through
+     * ChannelAnalysisResult.networks; counting them in both lists would duplicate rows in
+     * the UI and double the reported interference.
+     */
+    private fun findOverlappingNeighbourNetworks(
+        targetChannel: Int,
+        band: FrequencyBand,
+        allNetworks: List<NetworkChannelInfo>
+    ): List<NetworkChannelInfo> {
+        return findInterferingNetworks(targetChannel, band, allNetworks)
+            .filter { it.channel != targetChannel }
     }
 
     private fun networksOverlap2GHz(
@@ -170,9 +192,9 @@ object NetworkFrequencyAnalyzer {
         interferingCount: Int
     ): Int {
         var score = 100
-        score -= networkCount * 10
-        score -= strongCount * 5
-        score -= interferingCount * 5
+        score -= networkCount * CO_CHANNEL_PENALTY
+        score -= strongCount * STRONG_SIGNAL_PENALTY
+        score -= interferingCount * ADJACENT_CHANNEL_PENALTY
         return maxOf(0, score)
     }
 
@@ -203,8 +225,10 @@ object NetworkFrequencyAnalyzer {
     private fun determineRecommendationReason(analysis: ChannelAnalysisResult): RecommendationReason {
         return when {
             analysis.networks.isEmpty() -> RecommendationReason.NoInterference
-            analysis.networks.size == 1 && analysis.interferingNetworks.isEmpty() -> RecommendationReason.LightUsage
-            analysis.interferingNetworks.isEmpty() -> RecommendationReason.NoChannelOverlap
+            analysis.networks.size == 1 && analysis.interferingNetworks.isEmpty() ->
+                RecommendationReason.LightUsage
+
+            analysis.interferingNetworks.isEmpty() -> RecommendationReason.Acceptable
             analysis.qualityScore >= 70 -> RecommendationReason.GoodChoice
             analysis.qualityScore >= 50 -> RecommendationReason.Acceptable
             else -> RecommendationReason.LeastCongested
@@ -212,7 +236,8 @@ object NetworkFrequencyAnalyzer {
     }
 
     private fun determineInterferenceLevel(analysis: ChannelAnalysisResult): InterferenceLevel {
-        val interferingCount = analysis.interferingNetworks.size
+        // Co-channel APs count double: they compete for the same airtime, not just spectrum.
+        val interferingCount = analysis.networks.size * 2 + analysis.interferingNetworks.size
         return when {
             interferingCount == 0 -> InterferenceLevel.NONE
             interferingCount <= 2 -> InterferenceLevel.LOW
@@ -225,8 +250,10 @@ object NetworkFrequencyAnalyzer {
     fun determineFrequencyBand(frequency: Int): FrequencyBand {
         return when {
             frequency in 2400..2500 -> FrequencyBand.GHZ_2_4
-            frequency in 5000..5999 -> FrequencyBand.GHZ_5
-            frequency in 5955..7000 -> FrequencyBand.GHZ_6
+            // 6 GHz starts at 5925 MHz, which used to be swallowed by the 5 GHz branch
+            // (5000..5999) and the first 6 GHz channels then failed channel decoding.
+            frequency in 5925..7125 -> FrequencyBand.GHZ_6
+            frequency in 4900..5924 -> FrequencyBand.GHZ_5
             else -> FrequencyBand.GHZ_2_4
         }
     }
@@ -239,15 +266,19 @@ object NetworkFrequencyAnalyzer {
 
             FrequencyBand.GHZ_5 -> {
                 when {
-                    frequency in 5170..5320 -> ((frequency - 5000) / 5)
-                    frequency in 5500..5700 -> (100 + (frequency - 5500) / 5)
+                    frequency in 5170..5340 -> ((frequency - 5000) / 5)
+                    // 5720 (channel 144) is a valid 5 GHz channel and was missing before.
+                    frequency in 5500..5720 -> (100 + (frequency - 5500) / 5)
                     frequency in 5745..5825 -> (149 + (frequency - 5745) / 5)
                     else -> -1
                 }
             }
 
             FrequencyBand.GHZ_6 -> {
-                ((frequency - 5955) / 20) + 1
+                // 6 GHz 20 MHz channels are numbered 1, 5, 9, ... 233 (steps of 4),
+                // because the numbering follows the 80 MHz groups, not 20 MHz slots.
+                val channel = 1 + 4 * ((frequency - 5955) / 20)
+                if (channel in 1..233) channel else -1
             }
         }
     }
@@ -258,13 +289,15 @@ object NetworkFrequencyAnalyzer {
             FrequencyBand.GHZ_5 -> {
                 when {
                     channel in 36..64 -> 5000 + channel * 5
-                    channel in 100..140 -> 5500 + (channel - 100) * 5
+                    channel in 100..144 -> 5500 + (channel - 100) * 5
                     channel in 149..165 -> 5745 + (channel - 149) * 5
                     else -> 0
                 }
             }
 
-            FrequencyBand.GHZ_6 -> 5955 + (channel - 1) * 20
+            FrequencyBand.GHZ_6 -> {
+                if (channel in 1..233) 5955 + ((channel - 1) / 4) * 20 else 0
+            }
         }
     }
 
@@ -299,7 +332,7 @@ object NetworkFrequencyAnalyzer {
                 165
             )
 
-            FrequencyBand.GHZ_6 -> (1..29).toList()
+            FrequencyBand.GHZ_6 -> (1..233 step 4).toList()
         }
     }
 

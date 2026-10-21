@@ -525,6 +525,7 @@
     <string name="wifi_key">WiFi key:</string>
     <string name="security">Security:</string>
     <string name="coordinates">Coordinates:</string>
+    <string name="distance_meters">%1$.2f m</string>
     <string name="unknown">Unknown</string>
     <string name="copy_key">Copy key</string>
     <string name="open_map">Open map</string>
@@ -778,7 +779,7 @@
     <string name="upload_all_with_passwords">Upload all with passwords to 3WiFi</string>
     <string name="upload_cracked_to_3wifi">Upload password to 3WiFi</string>
     <string name="support_state_supported">Supported</string>
-    <string name="support_state_unlikely">Unlikely</string>
+    <string name="support_state_likely">Likely</string>
     <string name="support_state_unsupported">Unsupported</string>
     <string name="error_no_internet">No internet connection available</string>
     <string name="error_connection_failed">Connection failed. Please try again later.</string>

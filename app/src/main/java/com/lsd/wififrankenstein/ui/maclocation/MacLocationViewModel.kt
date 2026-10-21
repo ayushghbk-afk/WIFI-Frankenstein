@@ -922,7 +922,7 @@ class MacLocationViewModel(application: Application) : AndroidViewModel(applicat
 
                 val cleanMac = macAddress.lowercase().replace("-", ":")
 
-                val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+                val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
                 sdf.timeZone = TimeZone.getTimeZone("UTC")
                 val timestamp = sdf.format(Date())
 

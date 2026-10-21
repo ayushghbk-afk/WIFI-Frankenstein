@@ -326,7 +326,8 @@ class WifiAdapter(
                 levelTextView.text =
                     itemView.context.getString(R.string.ws_signal_dbm, scanResult.level)
 
-                val distance = calculateDistanceString(scanResult.frequency, scanResult.level, 1.0)
+                val distance =
+                    calculateDistanceString(itemView.context, scanResult.frequency, scanResult.level, 1.0)
                 distanceTextView.text = distance
 
                 securityIcon.setImageResource(networkDetails.security.mainProtocol.iconRes)

@@ -260,7 +260,7 @@ class IwWifiScannerAdapter(
         fun bind(network: IwWifiNetwork) {
             val freqInt = network.frequency.toIntOrNull() ?: 2412
             val signalInt = network.signalStrength
-            val distance = calculateDistanceString(freqInt, signalInt, 1.0)
+            val distance = calculateDistanceString(itemView.context, freqInt, signalInt, 1.0)
             val security = parseSecurity(network.capabilities)
 
             binding.apply {

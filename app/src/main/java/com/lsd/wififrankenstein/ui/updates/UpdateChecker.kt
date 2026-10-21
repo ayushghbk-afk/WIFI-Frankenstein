@@ -85,7 +85,7 @@ class UpdateChecker(private val context: Context) {
                     ?: context.getString(R.string.unknown)
             val newVersion = appInfo.getString("version")
 
-            if (currentVersion != newVersion) {
+            if (compareVersions(currentVersion, newVersion) < 0) {
                 AppUpdateInfo(
                     currentVersion = currentVersion,
                     newVersion = newVersion,

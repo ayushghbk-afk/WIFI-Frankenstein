@@ -481,6 +481,7 @@
     <string name="wifi_key">WiFi-ключ:</string>
     <string name="security">Захист:</string>
     <string name="coordinates">Координати:</string>
+    <string name="distance_meters">%1$.2f м</string>
     <string name="unknown">Невідомо</string>
     <string name="copy_key">Копіювати ключ</string>
     <string name="open_map">Відкрити карту</string>
@@ -630,7 +631,7 @@
     <string name="pin_copied_to_clipboard">ПІН скопійовано до буфера обміну</string>
     <string name="menu_pixiedust">PixieDust</string>
     <string name="support_state_supported">Підтримується</string>
-    <string name="support_state_unlikely">Малоймовірно</string>
+    <string name="support_state_likely">Ймовірно</string>
     <string name="support_state_unsupported">Не підтримується</string>
     <string name="error_no_internet">Немає підключення до Інтернету</string>
     <string name="error_connection_failed">Помилка підключення. Спробуйте ще раз пізніше.</string>

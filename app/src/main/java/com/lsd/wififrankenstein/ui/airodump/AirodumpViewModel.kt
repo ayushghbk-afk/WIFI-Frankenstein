@@ -2285,7 +2285,7 @@ class AirodumpViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         super.onCleared()
         if (captureJob?.isActive == true || _isCaptureRunning.value == true) {
-            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            com.lsd.wififrankenstein.WifiApplication.applicationScope.launch {
                 try {
                     captureRunner.forceCleanup()
                 } catch (e: Exception) {

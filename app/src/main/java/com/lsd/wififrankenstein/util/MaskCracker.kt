@@ -64,7 +64,7 @@ object MaskCracker {
 
     fun generateAt(parsed: ParsedMask, index: Long): String {
         require(index >= 0) { "negative index" }
-        require(index < parsed.totalCombinations || parsed.totalCombinations == Long.MAX_VALUE) {
+        require(parsed.totalCombinations == Long.MAX_VALUE || index < parsed.totalCombinations) {
             "index $index out of range ${parsed.totalCombinations}"
         }
 
@@ -72,7 +72,12 @@ object MaskCracker {
         var remaining = index
         for (pos in parsed.positions.asReversed()) {
             val size = pos.size
-            if (size <= 1) { sb.append(pos.firstOrNull() ?: '?'); continue }
+            if (size <= 1) {
+                // Fixed characters must be prepended as well: the loop walks the mask
+                // backwards, so appending would reverse every literal in the mask.
+                sb.insert(0, pos.firstOrNull() ?: '?')
+                continue
+            }
             val digit = (remaining % size).toInt()
             remaining /= size
             sb.insert(0, pos[digit])

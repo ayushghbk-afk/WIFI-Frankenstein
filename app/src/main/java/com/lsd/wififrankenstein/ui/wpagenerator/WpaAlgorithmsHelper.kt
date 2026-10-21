@@ -2,7 +2,6 @@ package com.lsd.wififrankenstein.ui.wpagenerator
 
 import android.content.Context
 import android.util.Base64
-import com.lsd.wififrankenstein.ui.wpagenerator.WpaResult.Companion.LIKELY_SUPPORTED
 import com.lsd.wififrankenstein.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +20,8 @@ data class WpaResult(
     val supportState: Int = SUPPORTED
 ) {
     companion object {
-        const val SUPPORTED = 2
-        const val LIKELY_SUPPORTED = 1
+        const val SUPPORTED = 3
+        const val LIKELY_SUPPORTED = 2
         const val UNLIKELY_SUPPORTED = 1
         const val UNSUPPORTED = 0
     }
@@ -64,7 +63,8 @@ class LruCache<K, V>(private val maxSize: Int) {
 class WpaAlgorithmsHelper(private val context: Context) {
 
     companion object {
-        const val SUPPORTED = 2
+        const val SUPPORTED = 3
+        const val LIKELY_SUPPORTED = 2
         const val UNLIKELY_SUPPORTED = 1
         const val UNSUPPORTED = 0
 

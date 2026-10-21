@@ -2611,8 +2611,9 @@ class WiFiScannerFragment : Fragment() {
         val buttonPlus: Button = dialogView.findViewById(R.id.button_plus)
 
         fun updateDistance() {
-            val distance =
-                calculateDistanceString(scanResult.frequency, scanResult.level, correctionFactor)
+            val distance = calculateDistanceString(
+                requireContext(), scanResult.frequency, scanResult.level, correctionFactor
+            )
             distanceTextView.text = distance
         }
 
@@ -2653,8 +2654,9 @@ class WiFiScannerFragment : Fragment() {
         val buttonPlus: Button = dialogView.findViewById(R.id.button_plus)
 
         fun updateDistance() {
-            val distance =
-                calculateDistanceString(frequency, level, correctionFactor)
+            val distance = calculateDistanceString(
+                requireContext(), frequency, level, correctionFactor
+            )
             distanceTextView.text = distance
         }
 

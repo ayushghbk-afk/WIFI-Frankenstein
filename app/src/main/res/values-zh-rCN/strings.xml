@@ -521,6 +521,7 @@
     <string name="wifi_key">WiFi 密钥：</string>
     <string name="security">安全：</string>
     <string name="coordinates">坐标：</string>
+    <string name="distance_meters">%1$.2f 米</string>
     <string name="unknown">未知</string>
     <string name="copy_key">复制密钥</string>
     <string name="open_map">打开地图</string>
@@ -774,7 +775,7 @@
     <string name="upload_all_with_passwords">将所有带密码的数据上传到 3WiFi</string>
     <string name="upload_cracked_to_3wifi">上传密码到 3WiFi</string>
     <string name="support_state_supported">支持</string>
-    <string name="support_state_unlikely">不太可能</string>
+    <string name="support_state_likely">可能支持</string>
     <string name="support_state_unsupported">不支持</string>
     <string name="error_no_internet">没有可用的互联网连接</string>
     <string name="error_connection_failed">连接失败。请稍后重试。</string>

@@ -483,6 +483,7 @@
     <string name="wifi_key">WiFi ключ:</string>
     <string name="security">Безопасность:</string>
     <string name="coordinates">Координаты:</string>
+    <string name="distance_meters">%1$.2f м</string>
     <string name="unknown">Неизвестно</string>
     <string name="copy_key">Копировать ключ</string>
     <string name="open_map">Открыть карту</string>
@@ -634,7 +635,7 @@
     <string name="menu_handshake_capture">Захват Handshake</string>
     <string name="menu_airodump">airodump-ng</string>
     <string name="support_state_supported">Поддерживается</string>
-    <string name="support_state_unlikely">Маловероятно</string>
+    <string name="support_state_likely">Вероятно</string>
     <string name="support_state_unsupported">Не поддерживается</string>
     <string name="error_no_internet">Нет подключения к интернету</string>
     <string name="error_connection_failed">Сбой подключения. Пожалуйста, попробуйте снова позже.</string>

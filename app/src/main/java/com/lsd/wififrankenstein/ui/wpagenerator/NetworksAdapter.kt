@@ -162,6 +162,7 @@ class NetworksAdapter(
 
             val supportText = when (result.supportState) {
                 WpaResult.SUPPORTED -> binding.root.context.getString(R.string.support_state_supported)
+                WpaResult.LIKELY_SUPPORTED -> binding.root.context.getString(R.string.support_state_likely)
                 WpaResult.UNLIKELY_SUPPORTED -> binding.root.context.getString(R.string.support_state_unlikely)
                 else -> binding.root.context.getString(R.string.support_state_unsupported)
             }
@@ -171,6 +172,11 @@ class NetworksAdapter(
                 WpaResult.SUPPORTED -> ContextCompat.getColor(
                     binding.root.context,
                     android.R.color.holo_green_dark
+                )
+
+                WpaResult.LIKELY_SUPPORTED -> ContextCompat.getColor(
+                    binding.root.context,
+                    android.R.color.holo_blue_dark
                 )
 
                 WpaResult.UNLIKELY_SUPPORTED -> ContextCompat.getColor(

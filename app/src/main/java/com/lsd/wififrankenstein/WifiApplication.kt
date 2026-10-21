@@ -16,7 +16,8 @@ import java.io.File
 class WifiApplication : Application() {
 
     companion object {
-        private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        /** Outlives every screen; use it for work that must finish after a ViewModel dies. */
+        val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         @Volatile
         var isRootAvailable: Boolean? = null

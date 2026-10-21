@@ -42,30 +42,30 @@
     <init>(...);
     <methods>;
 }
--keep public class com.lsd.wififrankenstein.WifiApplication { *; }
--keep public class com.lsd.wififrankenstein.MainActivity { *; }
--keep public class com.lsd.wififrankenstein.WelcomeActivity { *; }
--keep public class com.lsd.wififrankenstein.WpsGeneratorActivity { *; }
--keep public class com.lsd.wififrankenstein.WpsGeneratorActivity$MyJavascriptInterface {
+-keep public class com.spectrefi.app.WifiApplication { *; }
+-keep public class com.spectrefi.app.MainActivity { *; }
+-keep public class com.spectrefi.app.WelcomeActivity { *; }
+-keep public class com.spectrefi.app.WpsGeneratorActivity { *; }
+-keep public class com.spectrefi.app.WpsGeneratorActivity$MyJavascriptInterface {
     *;
 }
--keepclasseswithmembers class com.lsd.wififrankenstein.WpsGeneratorActivity$MyJavascriptInterface {
+-keepclasseswithmembers class com.spectrefi.app.WpsGeneratorActivity$MyJavascriptInterface {
     @android.webkit.JavascriptInterface <methods>;
 }
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
 -keepattributes JavascriptInterface
--keep public class com.lsd.wififrankenstein.service.DownloadService { *; }
--keep public class com.lsd.wififrankenstein.service.DatabaseDownloadService { *; }
--keep public class com.lsd.wififrankenstein.service.ChrootInstallService { *; }
--keep public class com.lsd.wififrankenstein.service.ForegroundAttackService { *; }
--keep public class com.lsd.wififrankenstein.service.BettercapDaemonService { *; }
--keep public class com.lsd.wififrankenstein.service.WpaCrackService { *; }
--keep public class com.lsd.wififrankenstein.service.ChrootAttackService { *; }
--keep public class com.lsd.wififrankenstein.service.HandshakeCaptureService { *; }
--keep public class com.lsd.wififrankenstein.service.NetProtectionService { *; }
--keep public class com.lsd.wififrankenstein.service.WiFiMapScanningService { *; }
+-keep public class com.spectrefi.app.service.DownloadService { *; }
+-keep public class com.spectrefi.app.service.DatabaseDownloadService { *; }
+-keep public class com.spectrefi.app.service.ChrootInstallService { *; }
+-keep public class com.spectrefi.app.service.ForegroundAttackService { *; }
+-keep public class com.spectrefi.app.service.BettercapDaemonService { *; }
+-keep public class com.spectrefi.app.service.WpaCrackService { *; }
+-keep public class com.spectrefi.app.service.ChrootAttackService { *; }
+-keep public class com.spectrefi.app.service.HandshakeCaptureService { *; }
+-keep public class com.spectrefi.app.service.NetProtectionService { *; }
+-keep public class com.spectrefi.app.service.WiFiMapScanningService { *; }
 -keep class androidx.core.content.FileProvider { *; }
 -keep public class * extends androidx.fragment.app.Fragment {
     public <init>(...);
@@ -77,20 +77,20 @@
 -keep class * implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator *;
 }
--keep class com.lsd.wififrankenstein.**Args { *; }
--keep class com.lsd.wififrankenstein.**Directions { *; }
--keep class com.lsd.wififrankenstein.**Action* { *; }
+-keep class com.spectrefi.app.**Args { *; }
+-keep class com.spectrefi.app.**Directions { *; }
+-keep class com.spectrefi.app.**Action* { *; }
 -keep class * implements androidx.viewbinding.ViewBinding {
     public static *** bind(...);
     public static *** inflate(...);
 }
--keep public class com.lsd.wififrankenstein.util.AnimatedLoadingBar {
+-keep public class com.spectrefi.app.util.AnimatedLoadingBar {
     public <init>(...);
 }
--keep public class com.lsd.wififrankenstein.ui.wifianalysis.WiFiSpectrumView {
+-keep public class com.spectrefi.app.ui.wifianalysis.WiFiSpectrumView {
     public <init>(...);
 }
--keep public class com.lsd.wififrankenstein.ipranges.CustomMapView {
+-keep public class com.spectrefi.app.ipranges.CustomMapView {
     public <init>(...);
 }
 -keep public class * extends android.view.View {
@@ -117,7 +117,7 @@
 -keep class * implements androidx.lifecycle.ViewModelProvider$Factory { *; }
 -keep class * extends androidx.paging.PagingSource { *; }
 -keep class * extends androidx.paging.PagingDataAdapter { *; }
--keep public class com.lsd.wififrankenstein.workers.NotificationWorker { *; }
+-keep public class com.spectrefi.app.workers.NotificationWorker { *; }
 -keep public class * extends androidx.work.Worker {
     public <init>(android.content.Context,androidx.work.WorkerParameters);
 }
@@ -128,7 +128,7 @@
     public <init>(android.content.Context,androidx.work.WorkerParameters);
 }
 -keep class * extends androidx.work.WorkerFactory { *; }
--keep public class com.lsd.wififrankenstein.util.NativeCracker {
+-keep public class com.spectrefi.app.util.NativeCracker {
     native <methods>;
     *;
 }
@@ -144,7 +144,7 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
--keepclassmembers enum com.lsd.wififrankenstein.** {
+-keepclassmembers enum com.spectrefi.app.** {
     public static **[] values();
     public static ** valueOf(java.lang.String);
     <fields>;
@@ -167,7 +167,7 @@
     public <init>(...);
     public void onReceive(android.content.Context, android.content.Intent);
 }
--keep public class com.lsd.wififrankenstein.shell.ShellInitializer { *; }
+-keep public class com.spectrefi.app.shell.ShellInitializer { *; }
 -keep public class * extends com.topjohnwu.superuser.Shell$Initializer {
     public <init>(...);
     public boolean onInit(...);
@@ -200,14 +200,14 @@
 }
 -keep class okhttp3.EventListener { *; }
 -keep class okhttp3.EventListener$Factory { *; }
--keep public class com.lsd.wififrankenstein.ui.internetblocking.scanner.DpiTraceEventListener { *; }
--keep public class com.lsd.wififrankenstein.ui.internetblocking.scanner.DpiTraceState { *; }
--keep class com.lsd.wififrankenstein.network.bettercap.BettercapClient { *; }
--keep class com.lsd.wififrankenstein.util.SslHelper { *; }
+-keep public class com.spectrefi.app.ui.internetblocking.scanner.DpiTraceEventListener { *; }
+-keep public class com.spectrefi.app.ui.internetblocking.scanner.DpiTraceState { *; }
+-keep class com.spectrefi.app.network.bettercap.BettercapClient { *; }
+-keep class com.spectrefi.app.util.SslHelper { *; }
 -keep class * implements javax.net.ssl.X509TrustManager { *; }
 -keep class * implements javax.net.ssl.HostnameVerifier { *; }
--keep class com.lsd.wififrankenstein.util.QrCodeHelper { *; }
--keep class com.lsd.wififrankenstein.util.QrNavigationHelper { *; }
+-keep class com.spectrefi.app.util.QrCodeHelper { *; }
+-keep class com.spectrefi.app.util.QrNavigationHelper { *; }
 -keep class com.google.android.gms.location.** { *; }
 -keep class jcifs.** { *; }
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory { *; }

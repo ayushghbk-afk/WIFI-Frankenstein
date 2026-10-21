@@ -1,0 +1,1420 @@
+package com.spectrefi.app.ui.wpacracker
+
+import android.app.Application
+import com.spectrefi.app.BuildConfig
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.viewModelScope
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.spectrefi.app.R
+import com.spectrefi.app.service.CrackRuntimeState
+import com.spectrefi.app.service.WpaCrackService
+import com.spectrefi.app.ui.dbsetup.localappdb.LocalAppDbHelper
+import com.spectrefi.app.ui.dbsetup.localappdb.WifiNetwork
+import com.spectrefi.app.ui.handshakecapture.HandshakeStorageManager
+import com.spectrefi.app.util.BenchmarkProgress
+import com.spectrefi.app.util.ChrootCapabilities
+import com.spectrefi.app.util.HandshakeCaptureRunner
+import com.spectrefi.app.util.HandshakeFormat
+import com.spectrefi.app.util.HandshakeHash
+import com.spectrefi.app.util.HandshakeParser
+import com.spectrefi.app.util.HandshakeType
+import com.spectrefi.app.util.Log
+import com.spectrefi.app.util.OfflineProgress
+import com.spectrefi.app.util.OfflineResult
+import com.spectrefi.app.util.PskOfflineBruteForceRunner
+import com.spectrefi.app.util.StorageAccess
+import com.spectrefi.app.util.WpaBenchmark
+import com.spectrefi.app.util.WpaCracker
+import com.spectrefi.app.util.WpaSecDictManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+enum class CrackEngine { NATIVE, CHROOT_AIRCRACK }
+
+sealed class WpaCrackerState {
+    data object Idle : WpaCrackerState()
+    data object LoadingHandshake : WpaCrackerState()
+    data class Loaded(val hash: HandshakeHash, val fileName: String) : WpaCrackerState()
+    data object LoadingWordlist : WpaCrackerState()
+    data class Cracking(val progress: OfflineProgress) : WpaCrackerState()
+    data class Paused(val progress: OfflineProgress) : WpaCrackerState()
+    data class ChrootCracking(val lines: List<String>) : WpaCrackerState()
+    data class Done(val result: OfflineResult, val hash: HandshakeHash) : WpaCrackerState()
+    data class Error(val message: String) : WpaCrackerState()
+}
+
+data class ChrootCrackProgress(
+    val speed: String = "",
+    val currentPassword: String = "",
+    val eta: String = "",
+    val attempts: Long = 0,
+    val total: Long = 0
+) {
+    val percent: Double get() = if (total > 0) (attempts.toDouble() / total * 100.0) else -1.0
+}
+
+class WpaCrackerViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private val httpClient = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        private val megaHttpClient = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val _state = MutableLiveData<WpaCrackerState>(WpaCrackerState.Idle)
+    val state: LiveData<WpaCrackerState> = _state
+
+    private val _hashResult = MutableLiveData<WpaCracker.CrackerResult?>()
+    val hashResult: LiveData<WpaCracker.CrackerResult?> = _hashResult
+
+    private val _benchmarkResult = MutableLiveData<WpaBenchmark.Report?>()
+    val benchmarkResult: LiveData<WpaBenchmark.Report?> = _benchmarkResult
+
+    private val _benchmarkRunning = MutableLiveData(false)
+    val benchmarkRunning: LiveData<Boolean> = _benchmarkRunning
+
+    private val _benchmarkProgress = MutableLiveData<BenchmarkProgress?>()
+    val benchmarkProgress: LiveData<BenchmarkProgress?> = _benchmarkProgress
+
+    private val _parseProgress = MutableLiveData(0)
+    val parseProgress: LiveData<Int> = _parseProgress
+
+    private val _selectedEngine = MutableLiveData(CrackEngine.NATIVE)
+
+    val selectedEngine: LiveData<CrackEngine> = _selectedEngine
+
+    private val _availableEngines = MutableLiveData<List<CrackEngine>>()
+    val availableEngines: LiveData<List<CrackEngine>> = _availableEngines
+
+    private val _handshakeInfo = MutableLiveData(
+        application.getString(R.string.wpa_tap_select_handshake)
+    )
+    val handshakeInfo: LiveData<String> = _handshakeInfo
+
+    private val _wordlistInfo = MutableLiveData(
+        application.getString(R.string.wpa_tap_select_wordlist)
+    )
+    val wordlistInfo: LiveData<String> = _wordlistInfo
+
+    private val _isPreparingWordlist = MutableLiveData(false)
+    val isPreparingWordlist: LiveData<Boolean> = _isPreparingWordlist
+
+    private val _consoleLines = MutableLiveData<List<String>>(emptyList())
+    val consoleLines: LiveData<List<String>> = _consoleLines
+
+    private val _chrootProgress = MutableLiveData<ChrootCrackProgress?>(null)
+    val chrootProgress: LiveData<ChrootCrackProgress?> = _chrootProgress
+
+    private val _chrootStatus = MutableLiveData("")
+    val chrootStatus: LiveData<String> = _chrootStatus
+
+    private val _isPaused = MutableLiveData(false)
+    val isPaused: LiveData<Boolean> = _isPaused
+
+    private val _isRunningInBackground = MutableLiveData(false)
+    val isRunningInBackground: LiveData<Boolean> = _isRunningInBackground
+
+    private val _hasWordlist = MutableLiveData(false)
+    val hasWordlist: LiveData<Boolean> = _hasWordlist
+
+    private val _storagePermissionRequired = MutableLiveData(false)
+    val storagePermissionRequired: LiveData<Boolean> = _storagePermissionRequired
+
+    fun clearStoragePermissionRequired() {
+        _storagePermissionRequired.value = false
+    }
+
+    private val _savedSession = MutableLiveData<CrackSessionData?>()
+    val savedSession: LiveData<CrackSessionData?> = _savedSession
+
+    private var currentHash: HandshakeHash? = null
+    private var candidateHashes: List<HandshakeHash> = emptyList()
+    private var currentFileName: String? = null
+    private var wordlistUri: Uri? = null
+    private var maskPattern: String? = null
+    private var capChrootPath: String? = null
+    private var wordlistChrootPath: String? = null
+    private var runner: PskOfflineBruteForceRunner? = null
+    private var captureRunner: HandshakeCaptureRunner? = null
+    private var nativeCrackJob: kotlinx.coroutines.Job? = null
+    private var lastProgress: OfflineProgress? = null
+
+    private val sessionManager = CrackSessionManager(getApplication())
+    private var crackReceiver: BroadcastReceiver? = null
+    private var receiverRegistered = false
+
+    init {
+        checkChrootAvailability()
+        reattachToRunningCrack()
+    }
+
+    private fun reattachToRunningCrack() {
+        val st = CrackRuntimeState
+        if (!st.isRunning) return
+        val line = st.handshakeLine
+        if (line.isBlank()) return
+
+        val hashes = (listOf(line) + st.extraLines)
+            .mapNotNull { HandshakeHash.parseAny(it) }
+            .distinctBy { it.dedupKey() }
+        if (hashes.isEmpty()) return
+
+        registerCrackReceiver()
+        _selectedEngine.value = CrackEngine.NATIVE
+        currentHash = hashes.first()
+        candidateHashes = hashes
+        currentFileName = "background"
+        wordlistUri = android.net.Uri.parse(st.wordlistUri)
+        _hasWordlist.value = true
+        val fileNameTail = android.net.Uri.parse(st.wordlistUri).lastPathSegment
+            ?: st.wordlistUri
+        _wordlistInfo.value = fileNameTail
+
+        val progress = st.lastProgress
+            ?: OfflineProgress("", 0, 0, 0.0, 0, 0, 0)
+        _handshakeInfo.value = getApplication<Application>().getString(
+            R.string.wpa_line, hashes.first().essid
+        )
+        if (st.isPaused) {
+            _isPaused.value = true
+            _state.value = WpaCrackerState.Paused(progress)
+        } else {
+            _state.value = WpaCrackerState.Cracking(progress)
+            _isRunningInBackground.value = true
+        }
+        Log.d("WpaCrackerVM", "Re-attached to running background crack")
+    }
+
+    private fun registerCrackReceiver() {
+        if (receiverRegistered) return
+        val app = getApplication<Application>()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    WpaCrackService.BROADCAST_CRACK_PROGRESS -> {
+                        if (_state.value is WpaCrackerState.Done) return@onReceive
+                        if (_isPaused.value == true) return@onReceive
+                        val password =
+                            intent.getStringExtra(WpaCrackService.EXTRA_CURRENT_PASSWORD) ?: ""
+                        val attempts = intent.getLongExtra(WpaCrackService.EXTRA_ATTEMPTS, 0)
+                        val totalLines = intent.getLongExtra(WpaCrackService.EXTRA_TOTAL_LINES, 0)
+                        val speed = intent.getDoubleExtra(WpaCrackService.EXTRA_SPEED, 0.0)
+                        val elapsedMs = intent.getLongExtra(WpaCrackService.EXTRA_ELAPSED_MS, 0)
+                        val etaMs = intent.getLongExtra(WpaCrackService.EXTRA_ETA_MS, 0)
+                        val offset = intent.getLongExtra(WpaCrackService.EXTRA_OFFSET, 0)
+                        val progress =
+                            OfflineProgress(password, attempts, totalLines, speed, elapsedMs, etaMs, offset)
+                        lastProgress = progress
+                        _state.postValue(WpaCrackerState.Cracking(progress))
+                    }
+
+                    WpaCrackService.BROADCAST_CRACK_FOUND -> {
+                        val password = intent.getStringExtra(WpaCrackService.EXTRA_RESULT_PSK) ?: ""
+                        val hash = currentHash ?: candidateHashes.firstOrNull() ?: return@onReceive
+                        val candidates = candidateHashes.ifEmpty { listOf(hash) }
+                        var crackResult: WpaCracker.CrackerResult? = null
+                        var matchedHash: HandshakeHash = hash
+                        for (h in candidates) {
+                            val r = WpaCracker.tryPassword(password, h)
+                            if (r.found) {
+                                crackResult = r
+                                matchedHash = h
+                                break
+                            }
+                        }
+                        val finalResult = crackResult ?: WpaCracker.tryPassword(password, hash)
+                        if (finalResult.found) {
+                            _hashResult.postValue(finalResult)
+                            persistCrackedResult(password, matchedHash)
+                        }
+                        _state.postValue(
+                            WpaCrackerState.Done(
+                                OfflineResult(password, 0, 0, 0.0), matchedHash
+                            )
+                        )
+                        _isRunningInBackground.postValue(false)
+                        clearCurrentSession()
+                    }
+
+                    WpaCrackService.BROADCAST_CRACK_ERROR -> {
+                        val msg = intent.getStringExtra(WpaCrackService.EXTRA_ERROR_MESSAGE)
+                            ?: "Unknown error"
+                        _state.postValue(WpaCrackerState.Error(msg))
+                        _isRunningInBackground.postValue(false)
+                        clearCurrentSession()
+                    }
+
+                    WpaCrackService.BROADCAST_CRACK_PAUSED -> {
+                        _isPaused.postValue(true)
+                        lastProgress?.let { _state.postValue(WpaCrackerState.Paused(it)) }
+                        saveCurrentSession()
+                    }
+
+                    WpaCrackService.BROADCAST_CRACK_RESUMED -> {
+                        _isPaused.postValue(false)
+                        lastProgress?.let { _state.postValue(WpaCrackerState.Cracking(it)) }
+                    }
+
+                    WpaCrackService.BROADCAST_CRACK_STOPPED -> {
+                        _isPaused.postValue(false)
+                        _isRunningInBackground.postValue(false)
+                        clearCurrentSession()
+                        val hash = currentHash
+                        if (hash != null) {
+                            _state.postValue(
+                                WpaCrackerState.Loaded(hash, currentFileName ?: "")
+                            )
+                        } else {
+                            _state.postValue(WpaCrackerState.Idle)
+                        }
+                    }
+
+                    WpaCrackService.BROADCAST_CHROOT_LINE -> {
+                        val line = intent.getStringExtra(WpaCrackService.EXTRA_PROGRESS_TEXT)
+                            ?: ""
+                        if (line.isNotBlank()) {
+                            val current = ArrayList(_consoleLines.value ?: emptyList())
+                            current.add(line)
+                            _consoleLines.value = current
+                            parseChrootLine(line)
+                        }
+                    }
+                }
+            }
+        }
+        crackReceiver = receiver
+        val filter = IntentFilter().apply {
+            addAction(WpaCrackService.BROADCAST_CRACK_PROGRESS)
+            addAction(WpaCrackService.BROADCAST_CRACK_FOUND)
+            addAction(WpaCrackService.BROADCAST_CRACK_ERROR)
+            addAction(WpaCrackService.BROADCAST_CRACK_PAUSED)
+            addAction(WpaCrackService.BROADCAST_CRACK_RESUMED)
+            addAction(WpaCrackService.BROADCAST_CRACK_STOPPED)
+            addAction(WpaCrackService.BROADCAST_CHROOT_LINE)
+        }
+        LocalBroadcastManager.getInstance(app).registerReceiver(receiver, filter)
+        receiverRegistered = true
+    }
+
+    private fun unregisterCrackReceiver() {
+        if (!receiverRegistered) return
+        val app = getApplication<Application>()
+        try {
+            crackReceiver?.let { LocalBroadcastManager.getInstance(app).unregisterReceiver(it) }
+        } catch (_: Exception) {
+        }
+        crackReceiver = null
+        receiverRegistered = false
+    }
+
+    private fun checkChrootAvailability() {
+        val ctx = getApplication<Application>()
+        val engines = mutableListOf(CrackEngine.NATIVE)
+        val hasChrootTools = ChrootCapabilities.hasChrootTools(ctx)
+        val hasRoot = ChrootCapabilities.isRootAvailable(ctx)
+        if (hasChrootTools) {
+            engines.add(CrackEngine.CHROOT_AIRCRACK)
+        }
+        _availableEngines.value = engines
+        _chrootStatus.value = when {
+            hasChrootTools -> getApplication<Application>().getString(R.string.wpa_chroot_available)
+            hasRoot -> getApplication<Application>().getString(
+                R.string.wpa_chroot_not_installed_use_aircrack
+            )
+
+            else -> ""
+        }
+    }
+
+    fun setEngine(engine: CrackEngine) {
+        if (engine == CrackEngine.CHROOT_AIRCRACK &&
+            !ChrootCapabilities.hasChrootTools(getApplication())
+        ) {
+            return
+        }
+        _selectedEngine.value = engine
+    }
+
+    fun runBenchmark() {
+        _benchmarkRunning.value = true
+        _benchmarkProgress.value = BenchmarkProgress(
+            getApplication<Application>().getString(R.string.wpa_starting)
+        )
+        _benchmarkResult.value = null
+        val benchmark = WpaBenchmark(getApplication())
+        viewModelScope.launch {
+            try {
+                val report = benchmark.runAll { progress ->
+                    _benchmarkProgress.postValue(progress)
+                }
+                _benchmarkResult.value = report
+                _benchmarkProgress.value = BenchmarkProgress(
+                    getApplication<Application>().getString(R.string.wpa_benchmark_complete),
+                    getApplication<Application>().getString(R.string.wpa_benchmark_all_finished),
+                    100
+                )
+            } catch (e: Exception) {
+                Log.e("WpaCrackerVM", "Benchmark failed", e)
+                _benchmarkProgress.value = BenchmarkProgress(
+                    getApplication<Application>().getString(
+                        R.string.wpa_benchmark_error,
+                        e.message
+                    )
+                )
+            } finally {
+                _benchmarkRunning.value = false
+            }
+        }
+    }
+
+    fun clearBenchmarkResult() {
+        _benchmarkResult.value = null
+        _benchmarkProgress.value = null
+    }
+
+    fun loadHandshakeFile(uri: Uri) {
+        _state.value = WpaCrackerState.LoadingHandshake
+        _parseProgress.value = 0
+        _handshakeInfo.value =
+            getApplication<Application>().getString(R.string.wpa_loading_handshake)
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val hash = withContext(Dispatchers.IO) {
+                    val inputStream = app.contentResolver.openInputStream(uri)
+                        ?: return@withContext null
+                    val bytes = inputStream.use { it.readBytes() }
+                    val fileName = uri.lastPathSegment ?: "unknown"
+
+                    val tempFile = File(app.cacheDir, "wpa_cracker_handshake_${System.nanoTime()}")
+                    tempFile.writeBytes(bytes)
+
+                    val parsed = parseHandshakeFile(tempFile, fileName) { pct ->
+                        _parseProgress.postValue(pct)
+                    }
+                    tempFile.delete()
+                    parsed
+                }
+
+                if (hash != null) {
+                    val hashes = hash.first
+                    val primary = hashes.first()
+                    currentHash = primary
+                    candidateHashes = hashes
+                    currentFileName = uri.lastPathSegment ?: "unknown"
+                    _handshakeInfo.value = hash.second
+                    _state.value = WpaCrackerState.Loaded(primary, currentFileName ?: "unknown")
+                } else if (_state.value !is WpaCrackerState.Error) {
+                    _state.value = WpaCrackerState.Error(
+                        getApplication<Application>().getString(R.string.wpa_no_handshakes_in_file)
+                    )
+                    _handshakeInfo.value =
+                        getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+                }
+            } catch (e: Exception) {
+                _state.value = WpaCrackerState.Error(
+                    getApplication<Application>().getString(
+                        R.string.wpa_error_loading_file,
+                        e.message
+                    )
+                )
+                _handshakeInfo.value =
+                    getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+            }
+        }
+    }
+
+    fun loadHandshakeFromUrl(url: String, isMega: Boolean) {
+        _state.value = WpaCrackerState.LoadingHandshake
+        _parseProgress.value = 0
+        _handshakeInfo.value =
+            getApplication<Application>().getString(R.string.wpa_downloading_handshake)
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val result = withContext(Dispatchers.IO) {
+                    downloadFile(app, url, isMega, "handshake_dl")
+                } ?: run {
+                    _state.value = WpaCrackerState.Error(
+                        getApplication<Application>().getString(R.string.wpa_download_failed)
+                    )
+                    _handshakeInfo.value =
+                        getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+                    return@launch
+                }
+                val (tempFile, fileName) = result
+                _handshakeInfo.value =
+                    getApplication<Application>().getString(R.string.wpa_loading_handshake)
+                val hash = parseHandshakeFile(tempFile, fileName) { pct ->
+                    _parseProgress.postValue(pct)
+                }
+                if (hash != null) {
+                    val hashes = hash.first
+                    val primary = hashes.first()
+                    currentHash = primary
+                    candidateHashes = hashes
+                    currentFileName = fileName
+                    _handshakeInfo.value = hash.second
+                    _state.value = WpaCrackerState.Loaded(primary, fileName)
+                } else {
+                    _state.value = WpaCrackerState.Error(
+                        getApplication<Application>().getString(
+                            R.string.wpa_no_handshakes_downloaded
+                        )
+                    )
+                    _handshakeInfo.value =
+                        getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+                }
+            } catch (e: Exception) {
+                _state.value = WpaCrackerState.Error(
+                    getApplication<Application>().getString(R.string.wpa_download_error, e.message)
+                )
+                _handshakeInfo.value =
+                    getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+            }
+        }
+    }
+
+    fun loadHandshakeFromText(text: String) {
+        _state.value = WpaCrackerState.LoadingHandshake
+        _handshakeInfo.value = getApplication<Application>().getString(R.string.wpa_parsing_pasted)
+        viewModelScope.launch {
+            try {
+                val hashes = HandshakeParser.parseText(text)
+                if (hashes.isEmpty()) {
+                    _state.value = WpaCrackerState.Error(
+                        getApplication<Application>().getString(R.string.wpa_no_valid_hashes_pasted)
+                    )
+                    _handshakeInfo.value =
+                        getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+                    return@launch
+                }
+                val hash = hashes.first()
+                currentHash = hash
+                candidateHashes = hashes
+                currentFileName = "pasted"
+                val count = hashes.size
+                _handshakeInfo.value = getApplication<Application>().getString(
+                    R.string.wpa_pasted_hash_essid,
+                    hash.essid,
+                    count,
+                    if (count > 1) "es" else ""
+                )
+                _state.value = WpaCrackerState.Loaded(hash, "pasted")
+            } catch (e: Exception) {
+                _state.value = WpaCrackerState.Error(
+                    getApplication<Application>().getString(R.string.wpa_error_msg, e.message)
+                )
+                _handshakeInfo.value =
+                    getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+            }
+        }
+    }
+
+    private suspend fun parseHandshakeFile(
+        file: File,
+        fileName: String,
+        onProgress: ((Int) -> Unit)? = null
+    ): Pair<List<HandshakeHash>, String>? {
+        val format = HandshakeHash.detectFileFormat(file)
+        val hashes = when (format) {
+            HandshakeFormat.PCAP, HandshakeFormat.PCAPNG ->
+                withContext(Dispatchers.IO) {
+                    HandshakeParser.parseFile(file) { frac ->
+                        onProgress?.invoke((frac * 100).toInt().coerceIn(0, 100))
+                    }
+                }
+
+            else -> withContext(Dispatchers.IO) { HandshakeParser.parseFile(file) }
+        }
+        if (hashes.isEmpty()) return null
+
+        val capPath = saveCapForChroot(file, fileName, format)
+        val primaryHash = hashes.firstOrNull { h ->
+            when (h.type) {
+                HandshakeType.EAPOL -> h.anonce != null && h.eapol != null
+                HandshakeType.PMKID, HandshakeType.PMKID_EAPOL -> h.pmkidOrMic.isNotBlank()
+            }
+        } ?: hashes.first()
+
+        return hashes to buildString {
+            when (format) {
+                HandshakeFormat.PCAP, HandshakeFormat.PCAPNG -> append(
+                    getApplication<Application>().getString(
+                        R.string.wpa_info_capture,
+                        fileName,
+                        primaryHash.essid
+                    )
+                )
+
+                HandshakeFormat.M22000 -> append(
+                    getApplication<Application>().getString(
+                        R.string.wpa_info_hash,
+                        fileName,
+                        primaryHash.essid
+                    )
+                )
+
+                HandshakeFormat.HCCAPX -> append(
+                    getApplication<Application>().getString(
+                        R.string.wpa_info_hccapx,
+                        fileName,
+                        primaryHash.essid
+                    )
+                )
+
+                HandshakeFormat.HCCAP -> append(
+                    getApplication<Application>().getString(
+                        R.string.wpa_info_hccap,
+                        fileName,
+                        primaryHash.essid
+                    )
+                )
+
+                HandshakeFormat.PMKID -> append(
+                    getApplication<Application>().getString(
+                        R.string.wpa_info_pmkid,
+                        fileName,
+                        primaryHash.essid
+                    )
+                )
+
+                HandshakeFormat.UNKNOWN -> append(
+                    getApplication<Application>().getString(
+                        R.string.wpa_info_file,
+                        fileName,
+                        primaryHash.essid
+                    )
+                )
+            }
+        }
+    }
+
+    private suspend fun saveCapForChroot(
+        file: File,
+        fileName: String,
+        format: HandshakeFormat
+    ): String? {
+        if (_selectedEngine.value != CrackEngine.CHROOT_AIRCRACK) return null
+        if (!ChrootCapabilities.hasChrootTools(getApplication())) return null
+        val app = getApplication<Application>()
+        val capDir = File(app.cacheDir, "wpa_cracker_cap")
+        capDir.mkdirs()
+        val capFile: File = when (format) {
+            HandshakeFormat.PCAP, HandshakeFormat.PCAPNG -> file
+            else -> {
+                val hash = currentHash ?: return null
+                val tmp = File(capDir, "${fileName}_${System.nanoTime()}.22000")
+                tmp.writeText(hash.to22000Line())
+                val capOut = File(capDir, "${fileName}_${System.nanoTime()}.cap")
+                val conv = withContext(Dispatchers.IO) {
+                    try {
+                        val cm = com.spectrefi.app.util.ChrootManager.get(app)
+                        cm.mountChroot()
+                        cm.executeInChroot("mkdir -p /sdcard/SpectreFi/temp")
+                        val chrootPath = "/sdcard/SpectreFi/temp/${tmp.name}"
+                        cm.executeInChroot("cp '${jvmToChroot(tmp)}' '$chrootPath' 2>/dev/null")
+                        val res =
+                            cm.executeInChroot("hcxhash2cap -o /sdcard/SpectreFi/temp/${capOut.name} '$chrootPath' 2>&1")
+                        if (res.isSuccess) {
+                            com.topjohnwu.superuser.Shell.cmd("cp '${"/sdcard/SpectreFi/temp/${capOut.name}"}' '${capOut.absolutePath}'")
+                                .exec()
+                            if (capOut.exists()) capOut else null
+                        } else null
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                if (conv != null && conv.exists()) conv else return null
+            }
+        }
+        capChrootPath = chrootize(capFile)
+        return capChrootPath
+    }
+
+    fun loadHandshakeFromStorage(
+        hashes: List<HandshakeHash>,
+        selectedIndex: Int = 0,
+        storageFileName: String? = null
+    ) {
+        if (hashes.isEmpty()) {
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_no_hashes_storage)
+            )
+            _handshakeInfo.value =
+                getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+            return
+        }
+        val hash = hashes[selectedIndex.coerceIn(0, hashes.lastIndex)]
+        currentHash = hash
+        candidateHashes = hashes
+        currentFileName = storageFileName
+        val count = hashes.size
+        val suffix = if (count > 1) {
+            getApplication<Application>().getString(R.string.wpa_hashes_suffix, count)
+        } else ""
+        _handshakeInfo.value = getApplication<Application>().getString(
+            R.string.wpa_storage_info,
+            hash.essid,
+            hash.macAp,
+            suffix
+        )
+        _state.value = WpaCrackerState.Loaded(hash, "storage")
+    }
+
+    fun setHandshakeHash(hash: HandshakeHash, fileName: String = "imported") {
+        currentHash = hash
+        candidateHashes = listOf(hash)
+        currentFileName = fileName
+        _handshakeInfo.value =
+            getApplication<Application>().getString(R.string.wpa_imported, hash.essid)
+        _state.value = WpaCrackerState.Loaded(hash, fileName)
+    }
+
+    fun setHandshakeLine(line: String, fileName: String? = null) {
+        val hashes = line.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .mapNotNull { HandshakeHash.parseAny(it) }
+            .filterNot { it.type == HandshakeType.EAPOL && it.messagePair in LEGACY_MESSAGE_PAIRS }
+            .distinctBy { it.dedupKey() }
+
+        if (hashes.isNotEmpty()) {
+            applyHandshakeHashes(hashes, fileName ?: "22000 line")
+            return
+        }
+
+        if (fileName == null) {
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_invalid_22000)
+            )
+            _handshakeInfo.value =
+                getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val resolved = tryResolveStorageHashes(fileName)
+            if (resolved.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    applyHandshakeHashes(resolved, fileName)
+                }
+                return@launch
+            }
+            val app = getApplication<Application>()
+            if (!StorageAccess.canUseFileApi(app) && !StorageAccess.canUsePrivileged(app)) {
+                _storagePermissionRequired.postValue(true)
+            }
+            withContext(Dispatchers.Main) {
+                _state.value = WpaCrackerState.Error(
+                    app.getString(R.string.wpa_invalid_22000)
+                )
+                _handshakeInfo.value = app.getString(R.string.wpa_tap_select_handshake)
+            }
+        }
+    }
+
+    private fun applyHandshakeHashes(hashes: List<HandshakeHash>, fileName: String) {
+        val hash = hashes.first()
+        currentHash = hash
+        candidateHashes = hashes
+        currentFileName = fileName
+        _handshakeInfo.value =
+            getApplication<Application>().getString(R.string.wpa_line, hash.essid)
+        _state.value = WpaCrackerState.Loaded(hash, "22000 line")
+    }
+
+    private suspend fun tryResolveStorageHashes(fileName: String): List<HandshakeHash> =
+        withContext(Dispatchers.IO) {
+            try {
+                val app = getApplication<Application>()
+                try {
+                    val privileged = HandshakeCaptureRunner(app).readCapBytesAndParse(
+                        "${HandshakeStorageManager.STORAGE_DIR}/$fileName"
+                    ).filterNot {
+                        it.type == HandshakeType.EAPOL && it.messagePair in LEGACY_MESSAGE_PAIRS
+                    }
+                    if (privileged.isNotEmpty()) return@withContext privileged
+                } catch (_: Exception) {
+                }
+                if (!StorageAccess.canUseFileApi(app)) return@withContext emptyList()
+                val hostPath = HandshakeStorageManager.STORAGE_DIR
+                    .replaceFirst("/sdcard", "/storage/emulated/0")
+                val file = File(hostPath, fileName)
+                if (file.exists()) {
+                    HandshakeParser.parseFile(file).filterNot {
+                        it.type == HandshakeType.EAPOL && it.messagePair in LEGACY_MESSAGE_PAIRS
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e("WpaCrackerVM", "Failed to re-parse storage handshake $fileName", e)
+                emptyList()
+            }
+        }
+
+    fun setWordlistFile(uri: Uri) {
+        wordlistUri = uri
+        maskPattern = null
+        _hasWordlist.value = true
+        val fileName = uri.lastPathSegment ?: "wordlist.txt"
+        _wordlistInfo.value = getApplication<Application>().getString(R.string.wpa_file, fileName)
+        if (_selectedEngine.value == CrackEngine.CHROOT_AIRCRACK) {
+            viewModelScope.launch {
+                copyWordlistToChroot(uri)
+            }
+        }
+        checkSessionMatch()
+    }
+
+    fun setWordlistMask(pattern: String) {
+        maskPattern = pattern
+        wordlistUri = null
+        _hasWordlist.value = true
+        val parsed = com.spectrefi.app.util.MaskCracker.parse(pattern)
+        _wordlistInfo.value = getApplication<Application>().getString(
+            R.string.brute_mask_combinations,
+            parsed.exactCombinations.toString()
+        )
+    }
+
+    private fun updateStartButton() {
+
+    }
+
+    fun loadWordlistFromUrl(url: String, isMega: Boolean) {
+        _isPreparingWordlist.value = true
+        _wordlistInfo.value =
+            getApplication<Application>().getString(R.string.wpa_downloading_wordlist)
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val result = downloadFile(app, url, isMega, "wordlist_dl") ?: run {
+                    _wordlistInfo.value = getApplication<Application>().getString(
+                        R.string.wpa_download_failed_retry
+                    )
+                    return@launch
+                }
+                val (tempFile, fileName) = result
+                val uri = Uri.fromFile(tempFile)
+                wordlistUri = uri
+                maskPattern = null
+                _hasWordlist.value = true
+                _wordlistInfo.value =
+                    getApplication<Application>().getString(R.string.wpa_url, fileName)
+                if (_selectedEngine.value == CrackEngine.CHROOT_AIRCRACK) {
+                    copyWordlistToChroot(uri)
+                }
+                checkSessionMatch()
+            } catch (e: Exception) {
+                _wordlistInfo.value = getApplication<Application>().getString(
+                    R.string.wpa_download_error,
+                    e.message
+                )
+            } finally {
+                _isPreparingWordlist.value = false
+            }
+        }
+    }
+
+    fun setWordlistFromPaste(passwords: List<String>) {
+        _isPreparingWordlist.value = true
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val tempFile = File(app.cacheDir, "pasted_wordlist_${System.nanoTime()}.txt")
+                tempFile.writeText(passwords.joinToString("\n"))
+                wordlistUri = Uri.fromFile(tempFile)
+                maskPattern = null
+                _hasWordlist.value = true
+                _wordlistInfo.value = getApplication<Application>().getString(
+                    R.string.wpa_pasted_passwords,
+                    passwords.size
+                )
+                if (_selectedEngine.value == CrackEngine.CHROOT_AIRCRACK) {
+                    copyWordlistToChroot(wordlistUri!!)
+                }
+                checkSessionMatch()
+            } catch (e: Exception) {
+                _wordlistInfo.value = getApplication<Application>().getString(
+                    R.string.wpa_error_msg,
+                    e.message
+                )
+            } finally {
+                _isPreparingWordlist.value = false
+            }
+        }
+    }
+
+    fun useWpaSecDict() {
+        _isPreparingWordlist.value = true
+        _wordlistInfo.value =
+            getApplication<Application>().getString(R.string.wpa_checking_wpasec)
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val manager = WpaSecDictManager(app)
+                val path = withContext(Dispatchers.IO) { manager.downloadIfNeeded() }
+                if (path != null) {
+                    val file = File(path)
+                    wordlistUri = Uri.fromFile(file)
+                    _hasWordlist.value = true
+                    val mb = if (file.length() > 0) {
+                        getApplication<Application>().getString(
+                            R.string.wpa_mb_suffix,
+                            file.length() / (1024 * 1024)
+                        )
+                    } else ""
+                    _wordlistInfo.value = getApplication<Application>().getString(
+                        R.string.wpa_wpasec_dict,
+                        mb
+                    )
+                    if (_selectedEngine.value == CrackEngine.CHROOT_AIRCRACK) {
+                        wordlistChrootPath = chrootize(file)
+                    }
+                    checkSessionMatch()
+                } else {
+                    val cached = manager.getDictPath()
+                    if (cached != null) {
+                        wordlistUri = Uri.fromFile(File(cached))
+                        _hasWordlist.value = true
+                        _wordlistInfo.value = getApplication<Application>().getString(
+                            R.string.wpa_wpasec_dict_cached
+                        )
+                        if (_selectedEngine.value == CrackEngine.CHROOT_AIRCRACK) {
+                            wordlistChrootPath = chrootize(File(cached))
+                        }
+                        checkSessionMatch()
+                    } else {
+                        _wordlistInfo.value = getApplication<Application>().getString(
+                            R.string.wpa_wpasec_unavailable
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _wordlistInfo.value = getApplication<Application>().getString(
+                    R.string.wpa_wpasec_error,
+                    e.message
+                )
+            } finally {
+                _isPreparingWordlist.value = false
+            }
+        }
+    }
+
+    private suspend fun copyWordlistToChroot(uri: Uri) {
+        if (!ChrootCapabilities.hasChrootTools(getApplication())) return
+        try {
+            val app = getApplication<Application>()
+            val tempFile = File(app.cacheDir, "wl_chroot_${System.nanoTime()}.txt")
+            app.contentResolver.openInputStream(uri)?.use { input ->
+                tempFile.outputStream().use { output -> input.copyTo(output) }
+            } ?: return
+            wordlistChrootPath = chrootize(tempFile)
+        } catch (e: Exception) {
+            Log.e("WpaCrackerVM", "copyWordlistToChroot failed", e)
+        }
+    }
+
+    private fun checkSessionMatch() {
+        val hash = currentHash ?: return
+        val uri = wordlistUri ?: return
+        val session = sessionManager.getSession(hash.to22000Line(), uri.toString()) ?: return
+        _savedSession.value = session
+    }
+
+    private fun clearCurrentSession() {
+        val hash = currentHash ?: return
+        val uri = wordlistUri ?: return
+        sessionManager.removeSession(hash.to22000Line(), uri.toString())
+    }
+
+    fun trySinglePassword(password: String) {
+        val hashes = candidateHashes.ifEmpty { listOfNotNull(currentHash) }
+        if (hashes.isEmpty()) return
+        viewModelScope.launch {
+            for (h in hashes) {
+                val result = WpaCracker.tryPassword(password, h)
+                if (result.found) {
+                    _hashResult.value = result
+                    persistCrackedResult(password, h)
+                    _state.value = WpaCrackerState.Done(
+                        OfflineResult(password, 1, 0, 0.0),
+                        h
+                    )
+                    return@launch
+                }
+            }
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_password_did_not_match)
+            )
+        }
+    }
+
+    private fun persistCrackedResult(password: String, hash: HandshakeHash) {
+        try {
+            val app = getApplication<Application>()
+            LocalAppDbHelper(app).addRecord(
+                WifiNetwork(
+                    id = 0,
+                    wifiName = hash.essid,
+                    macAddress = hash.macAp,
+                    wifiPassword = password
+                )
+            )
+            val storageManager = HandshakeStorageManager(app)
+            storageManager.saveCrackedPassword(hash.macAp, password)
+            val fileName = currentFileName
+            if (fileName != null && fileName != "pasted" && fileName != "22000 line" && fileName != "storage") {
+                storageManager.updateHandshakeCracked(fileName, password)
+            }
+        } catch (e: Exception) {
+            Log.e("WpaCrackerVM", "Failed to persist cracked result", e)
+        }
+    }
+
+    fun startCracking() {
+        val hash = currentHash
+        if (hash != null) {
+            if (hash.type == HandshakeType.EAPOL && (hash.anonce.isNullOrBlank() || hash.eapol.isNullOrBlank())) {
+                _state.value = WpaCrackerState.Error(
+                    getApplication<Application>().getString(R.string.wpa_invalid_handshake_beacon)
+                )
+                return
+            }
+            if ((hash.type == HandshakeType.PMKID || hash.type == HandshakeType.PMKID_EAPOL) && hash.pmkidOrMic.isBlank()) {
+                _state.value = WpaCrackerState.Error(
+                    getApplication<Application>().getString(R.string.wpa_invalid_pmkid)
+                )
+                return
+            }
+        }
+        when (_selectedEngine.value ?: CrackEngine.NATIVE) {
+            CrackEngine.NATIVE -> startNativeCracking()
+            CrackEngine.CHROOT_AIRCRACK -> startChrootCracking()
+        }
+    }
+
+    private fun startNativeCracking() {
+        val hash = currentHash ?: return
+        val isMask = maskPattern != null
+        if (!isMask && wordlistUri == null) return
+
+        if (CrackRuntimeState.isRunning) {
+            Log.w("WpaCrackerVM", "startNativeCracking: crack already running, re-attaching")
+            reattachToRunningCrack()
+            return
+        }
+
+        registerCrackReceiver()
+
+        val hashLine = hash.to22000Line()
+        val extraLines = candidateHashes
+            .filter { it.dedupKey() != hash.dedupKey() }
+            .map { it.to22000Line() }
+        WpaCrackService.startMaskOrDictCrack(
+            getApplication(),
+            hashLine,
+            wordlistUri = wordlistUri?.toString(),
+            mask = maskPattern,
+            extraLines = extraLines,
+            offset = 0,
+            totalLines = 0
+        )
+        _hashResult.value = null
+        _isPaused.value = false
+        _isRunningInBackground.value = true
+        _state.value = WpaCrackerState.Cracking(
+            OfflineProgress(
+                getApplication<Application>().getString(R.string.wpa_starting),
+                0,
+                0,
+                0.0,
+                0,
+                0
+            )
+        )
+    }
+
+    fun pauseCracking() {
+        when (_selectedEngine.value ?: CrackEngine.NATIVE) {
+            CrackEngine.NATIVE -> {
+                WpaCrackService.pauseCrack(getApplication())
+                _isPaused.value = true
+                lastProgress?.let { _state.value = WpaCrackerState.Paused(it) }
+                saveCurrentSession()
+            }
+
+            CrackEngine.CHROOT_AIRCRACK -> {
+                WpaCrackService.stopChrootCrack(getApplication())
+                _isPaused.value = true
+                _state.value = WpaCrackerState.Paused(
+                    OfflineProgress("", 0, 0, 0.0, 0, 0)
+                )
+                saveCurrentSession()
+            }
+        }
+    }
+
+    fun resumeCracking() {
+        when (_selectedEngine.value ?: CrackEngine.NATIVE) {
+            CrackEngine.NATIVE -> {
+                WpaCrackService.resumeCrack(getApplication())
+                _isPaused.value = false
+                lastProgress?.let { _state.value = WpaCrackerState.Cracking(it) }
+            }
+
+            CrackEngine.CHROOT_AIRCRACK -> {
+                _isPaused.value = false
+                startChrootCracking()
+            }
+        }
+    }
+
+    fun restoreSession(session: CrackSessionData) {
+        val hash = HandshakeHash.parseAny(session.handshakeLine)
+        if (hash == null) {
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_restore_invalid_data)
+            )
+            sessionManager.removeSession(session.handshakeLine, session.wordlistUri)
+            _savedSession.value = null
+            return
+        }
+        if (hash.type == HandshakeType.EAPOL && (hash.anonce.isNullOrBlank() || hash.eapol.isNullOrBlank())) {
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_restore_invalid_handshake)
+            )
+            sessionManager.removeSession(session.handshakeLine, session.wordlistUri)
+            _savedSession.value = null
+            return
+        }
+        if ((hash.type == HandshakeType.PMKID || hash.type == HandshakeType.PMKID_EAPOL) && hash.pmkidOrMic.isBlank()) {
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_restore_invalid_pmkid)
+            )
+            sessionManager.removeSession(session.handshakeLine, session.wordlistUri)
+            _savedSession.value = null
+            return
+        }
+        currentHash = hash
+        candidateHashes = listOf(hash)
+        wordlistUri = Uri.parse(session.wordlistUri)
+        _hasWordlist.value = true
+        _handshakeInfo.value =
+            getApplication<Application>().getString(R.string.wpa_restored, hash.essid)
+        _wordlistInfo.value = getApplication<Application>().getString(
+            R.string.wpa_resuming_offset,
+            session.offset
+        )
+        _state.value = WpaCrackerState.Loaded(hash, "restored")
+
+        if (session.engineName == "CHROOT_AIRCRACK") {
+            _selectedEngine.value = CrackEngine.CHROOT_AIRCRACK
+            startChrootCracking()
+        } else {
+            _selectedEngine.value = CrackEngine.NATIVE
+            registerCrackReceiver()
+            val hashLine = hash.to22000Line()
+            WpaCrackService.startCrack(
+                getApplication(),
+                hashLine,
+                session.wordlistUri,
+                offset = session.offset,
+                totalLines = session.totalLines
+            )
+            _hashResult.value = null
+            _isPaused.value = false
+            _isRunningInBackground.value = true
+            _state.value = WpaCrackerState.Cracking(
+                OfflineProgress(
+                    getApplication<Application>().getString(R.string.wpa_resuming),
+                    session.offset,
+                    session.totalLines,
+                    0.0,
+                    0,
+                    0,
+                    session.offset
+                )
+            )
+        }
+    }
+
+    fun dismissSavedSession() {
+        val session = _savedSession.value ?: return
+        sessionManager.removeSession(session.handshakeLine, session.wordlistUri)
+        _savedSession.value = null
+    }
+
+    private fun saveCurrentSession() {
+        val hash = currentHash ?: return
+        val uri = wordlistUri ?: return
+        val offset = lastProgress?.offset ?: 0
+        val totalLines = lastProgress?.totalPasswords ?: 0
+
+        sessionManager.saveSession(
+            CrackSessionData(
+                wordlistUri = uri.toString(),
+                handshakeLine = hash.to22000Line(),
+                offset = offset,
+                totalLines = totalLines,
+                engineName = (_selectedEngine.value ?: CrackEngine.NATIVE).name,
+                timestamp = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private fun startChrootCracking() {
+        val hash = currentHash ?: return
+        val uri = wordlistUri ?: run {
+            _state.value = WpaCrackerState.Error(
+                getApplication<Application>().getString(R.string.wpa_no_wordlist_selected)
+            )
+            return
+        }
+
+        registerCrackReceiver()
+        _consoleLines.value = emptyList()
+        _chrootProgress.value = null
+        _hashResult.value = null
+        _isRunningInBackground.value = true
+        _state.value = WpaCrackerState.ChrootCracking(emptyList())
+
+        val joinedLines =
+            (listOf(hash) + candidateHashes.filter { it.dedupKey() != hash.dedupKey() })
+                .map { it.to22000Line() }
+                .distinct()
+                .joinToString("\n")
+                .ifBlank { hash.to22000Line() }
+
+        WpaCrackService.startChrootCrack(
+            getApplication(),
+            joinedLines,
+            uri.toString()
+        )
+    }
+
+    private fun parseChrootLine(line: String) {
+        val current = _chrootProgress.value ?: ChrootCrackProgress()
+        when {
+            line.startsWith("Time left:") -> {
+                val rest = line.removePrefix("Time left:").trim()
+                val parts = rest.split(Regex("\\s{3,}"))
+                val eta = parts.first().trim()
+                val pct = parts.getOrNull(1)?.trimEnd('%')?.toDoubleOrNull() ?: -1.0
+                _chrootProgress.postValue(current.copy(eta = eta))
+            }
+
+            line.startsWith("Current passphrase:") -> {
+                val pass = line.removePrefix("Current passphrase:").trim()
+                if (pass.isNotBlank()) {
+                    _chrootProgress.postValue(current.copy(currentPassword = pass))
+                }
+            }
+
+            Regex("""\[\d{2}:\d{2}:\d{2}\]\s+\d+/\d+\s+keys tested""").containsMatchIn(line) -> {
+                val m =
+                    Regex("""\[(\d{2}:\d{2}:\d{2})\]\s+(\d+)/(\d+)\s+keys tested.*\(([^)]+)\)""").find(
+                        line
+                    )
+                if (m != null) {
+                    val rawSpeed = m.groupValues[4]
+                    val normalizedSpeed = rawSpeed.replace("k/s", "pw/s")
+                    _chrootProgress.postValue(
+                        current.copy(
+                            attempts = m.groupValues[2].toLongOrNull() ?: 0,
+                            total = m.groupValues[3].toLongOrNull() ?: 0,
+                            speed = normalizedSpeed
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancel() {
+        when (_selectedEngine.value ?: CrackEngine.NATIVE) {
+            CrackEngine.NATIVE -> {
+                WpaCrackService.stopCrack(getApplication())
+                _isPaused.value = false
+                _isRunningInBackground.value = false
+            }
+
+            CrackEngine.CHROOT_AIRCRACK -> {
+                WpaCrackService.stopChrootCrack(getApplication())
+                _isRunningInBackground.value = false
+            }
+        }
+        clearCurrentSession()
+        _savedSession.value = null
+    }
+
+    fun reset() {
+        cancel()
+        unregisterCrackReceiver()
+        currentHash = null
+        candidateHashes = emptyList()
+        wordlistUri = null
+        maskPattern = null
+        capChrootPath = null
+        wordlistChrootPath = null
+        runner = null
+        captureRunner = null
+        lastProgress = null
+        _state.value = WpaCrackerState.Idle
+        _hashResult.value = null
+        _consoleLines.value = emptyList()
+        _chrootProgress.value = null
+        _handshakeInfo.value =
+            getApplication<Application>().getString(R.string.wpa_tap_select_handshake)
+        _wordlistInfo.value =
+            getApplication<Application>().getString(R.string.wpa_tap_select_wordlist)
+        _isPaused.value = false
+        _isRunningInBackground.value = false
+        _hasWordlist.value = false
+        cleanupTempDirs()
+    }
+
+    private fun cleanupTempDirs() {
+        try {
+            val app = getApplication<Application>()
+            val cacheDir = app.cacheDir
+            cacheDir.listFiles()?.filter { it.name.nameMatchesTempPattern() }
+                ?.forEach { f ->
+                    val ageMs = System.currentTimeMillis() - f.lastModified()
+                    if (ageMs > 30 * 60 * 1000) {
+                        if (f.isDirectory) f.deleteRecursively() else f.delete()
+                    }
+                }
+        } catch (_: Exception) {}
+    }
+
+    private fun String.nameMatchesTempPattern(): Boolean {
+        return startsWith("wpa_cracker_") || startsWith("wordlist_dl_") ||
+                startsWith("handshake_dl_") || startsWith("pasted_wordlist_") ||
+                startsWith("wl_chroot_")
+    }
+
+    fun setError(message: String) {
+        _state.value = WpaCrackerState.Error(message)
+    }
+
+    fun clearSession() {
+        sessionManager.clearAll()
+        reset()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        runner?.cancel()
+        captureRunner?.cancel()
+        unregisterCrackReceiver()
+        cleanupTempDirs()
+    }
+
+    private data class DownloadResult(val file: File, val name: String)
+
+    private suspend fun downloadFile(
+        app: Application, url: String, isMega: Boolean, prefix: String
+    ): DownloadResult? = withContext(Dispatchers.IO) {
+        try {
+            val tempDir = File(app.cacheDir, "${prefix}_${System.nanoTime()}")
+            tempDir.mkdirs()
+            val fileName =
+                url.substringAfterLast("/").substringBefore("?").takeIf { it.isNotBlank() }
+                    ?: "download_${System.nanoTime()}"
+            val tempFile = File(tempDir, fileName)
+
+            if (isMega) {
+                val megaDownloader =
+                    com.spectrefi.app.network.MegaPublicDownloader(megaHttpClient)
+                val resolvedName = megaDownloader.resolveFileName(url) ?: fileName
+                val resolvedFile = File(tempDir, resolvedName)
+                val result = megaDownloader.download(url, resolvedFile)
+                result.getOrNull()?.let { return@withContext DownloadResult(it, resolvedName) }
+                return@withContext null
+            }
+
+            val request = okhttp3.Request.Builder().url(url)
+                .addHeader("User-Agent", "SpectreFi/${BuildConfig.VERSION_NAME}").build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val stream = response.body?.byteStream() ?: return@withContext null
+                stream.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output, bufferSize = 64 * 1024)
+                    }
+                }
+            }
+
+            val ext = fileExtension(tempFile)
+            if (ext in listOf("zip", "7z", "gz", "tgz")) {
+                val extractDir = File(tempDir, "extracted")
+                extractDir.mkdirs()
+                val extracted =
+                    com.spectrefi.app.util.ArchiveExtractor.extract(tempFile, extractDir)
+                val txtFile = extracted.firstOrNull {
+                    it.extension.lowercase() in listOf(
+                        "txt",
+                        "cap",
+                        "pcap",
+                        "pcapng",
+                        "22000",
+                        "hccapx",
+                        "hccap"
+                    )
+                }
+                if (txtFile != null) return@withContext DownloadResult(txtFile, txtFile.name)
+                if (extracted.isNotEmpty()) return@withContext DownloadResult(
+                    extracted.first(),
+                    extracted.first().name
+                )
+            }
+
+            DownloadResult(tempFile, fileName)
+        } catch (e: Exception) {
+            Log.e("WpaCrackerVM", "downloadFile failed: $prefix", e)
+            null
+        }
+    }
+
+    private fun fileExtension(file: File): String = file.extension.lowercase()
+
+    private fun chrootize(file: File): String {
+        val sdcard = android.os.Environment.getExternalStorageDirectory().absolutePath
+        return if (file.absolutePath.startsWith(sdcard)) {
+            "/sdcard" + file.absolutePath.removePrefix(sdcard)
+        } else {
+            val chrootPath = "/sdcard/SpectreFi/temp/${file.name}"
+            com.topjohnwu.superuser.Shell.cmd(
+                "mkdir -p /sdcard/SpectreFi/temp && cp '${file.absolutePath}' '$chrootPath'"
+            ).exec()
+            chrootPath
+        }
+    }
+
+    private fun jvmToChroot(file: File): String {
+        val sdcard = android.os.Environment.getExternalStorageDirectory().absolutePath
+        return if (file.absolutePath.startsWith(sdcard)) {
+            "/sdcard" + file.absolutePath.removePrefix(sdcard)
+        } else {
+            "/sdcard/SpectreFi/temp/${file.name}"
+        }
+    }
+}
+
+private val LEGACY_MESSAGE_PAIRS = setOf(0x80, 0x81, 0x82, 0x85)

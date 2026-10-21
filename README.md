@@ -1,4 +1,4 @@
-# WiFi Frankenstein
+# SpectreFi
 
 ![App Version](https://img.shields.io/badge/app_version-2.6-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
@@ -6,13 +6,21 @@
 ![License](https://img.shields.io/badge/license-GPL--3.0-lightgrey)
 
 
-## Download the application: [WIFI-Frankenstein-2.6.apk](https://github.com/LowSkillDeveloper/WIFI-Frankenstein/releases/download/WIFI-Frankenstein_v2.6/WIFI-Frankenstein-2.6.apk)
+## Download the application: [SpectreFi-2.6.apk (upstream build)](https://github.com/LowSkillDeveloper/WIFI-Frankenstein/releases/download/WIFI-Frankenstein_v2.6/WIFI-Frankenstein-2.6.apk)
 
 ## 📱 Overview
 
-**WiFi Frankenstein** is a comprehensive WiFi security-audit and database management application for Android. This application serves as the successor to the original 3WiFi Locator, offering significant improvements and new features for WiFi network analysis, mapping, and database management.
+**SpectreFi** is a comprehensive WiFi security-audit and database management application for Android. This application serves as the successor to the original 3WiFi Locator, offering significant improvements and new features for WiFi network analysis, mapping, and database management.
 
-The application combines various WiFi tools into one package, hence the name "Frankenstein", it's built from the best parts of different WiFi analysis tools.
+SpectreFi bundles the best parts of several WiFi analysis tools into a single, focused RF-audit app: database
+lookups, wardriving maps, channel analysis, handshake capture/conversion and an offline cracker that verifies how
+much punishment *your own* passphrase would take.
+
+> **Lineage and licence.** SpectreFi is a rebranded derivative of [WIFI
+> Frankenstein](https://github.com/LowSkillDeveloper/WIFI-Frankenstein) by LowSkillDeveloper, published under the
+> GNU GPL v3. The original authors keep all copyright in their code; this fork keeps the same licence, retains the
+> upstream history and adds a security/robustness pass plus a new visual identity. Donation addresses below belong
+> to the original author.
 
 ## ✨ Features
 
@@ -58,7 +66,7 @@ The application combines various WiFi tools into one package, hence the name "Fr
 
 ## 🔄 Comparison with 3WiFi Locator
 
-| Feature | WiFi Frankenstein | 3WiFi Locator |
+| Feature | SpectreFi | 3WiFi Locator |
 |---------|-------------------|---------------|
 | Local in-app Database | ✅ Yes  | ⚠️ Limited |
 | WiFi Maps | ✅ Yes | ❌ Not supported |
@@ -165,4 +173,4 @@ If you find this project useful and would like to support its development, you c
 4AC1MepXZA8R6XGcL5mjejWRDqKvmbY3YWGEJTCWmFxJ8gPuLULSYxKSWafy9haMXGYuR2CdF3Vr8Q2kS8pBorVpQ4Lie48
 ```
 
-## Download the application: [WIFI-Frankenstein-2.6.apk](https://github.com/LowSkillDeveloper/WIFI-Frankenstein/releases/download/WIFI-Frankenstein_v2.6/WIFI-Frankenstein-2.6.apk)
+## Download the application: [SpectreFi-2.6.apk (upstream build)](https://github.com/LowSkillDeveloper/WIFI-Frankenstein/releases/download/WIFI-Frankenstein_v2.6/WIFI-Frankenstein-2.6.apk)

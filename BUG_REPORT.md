@@ -1,4 +1,4 @@
-# WiFi Frankenstein — bug audit
+# SpectreFi — bug audit
 
 **Commit audited:** `4d85d27` ("Improved database recovery") · branch `arena/aec45c7a-wifi-frankenstein`
 **Scope:** `app/src/main/**` — ~140 Kotlin files read in full, the rest scanned by pattern. No Gradle/JDK in this

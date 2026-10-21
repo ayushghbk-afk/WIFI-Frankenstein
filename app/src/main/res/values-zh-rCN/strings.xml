@@ -1,10 +1,10 @@
 <resources>
-    <string name="app_name" translatable="false">WIFI Frankenstein</string>
+    <string name="app_name" translatable="false">SpectreFi</string>
     <string name="nav_header_title_with_version" translatable="false">%1$s %2$s</string>
-    <string name="default_upload_comment" translatable="false">WIFI-Frankenstein</string>
+    <string name="default_upload_comment" translatable="false">SpectreFi</string>
     <string name="include_app_identifier">包含应用标识符</string>
     <string name="app_identifier_description">随请求发送应用标识符</string>
-    <string name="nav_header_title" translatable="false">WIFI Frankenstein</string>
+    <string name="nav_header_title" translatable="false">SpectreFi</string>
     <string name="nav_header_desc">导航标题</string>
     <string name="db_type_sqlite_3wifi">SQLite 文件（3WiFi 类型）</string>
     <string name="db_type_sqlite_custom">SQLite 文件（自定义）</string>
@@ -72,13 +72,13 @@
     <string name="location_permission_required">扫描 WiFi 网络需要定位权限。</string>
     <string name="records_found">在 %2$d 个数据库中找到 %1$d 条记录</string>
     <string name="error_starting_app_update">启动应用更新时出错：%s</string>
-    <string name="app_update_title">WIFI Frankenstein 更新</string>
+    <string name="app_update_title">SpectreFi 更新</string>
     <string name="downloading_new_version">正在下载应用的新版本</string>
     <string name="install_new_version">安装新版本</string>
     <string name="download_apk">下载 APK</string>
     <string name="version_check_old_install_message">您正在安装的版本已过时。</string>
     <string name="unknown_sources_permission_title">安装未知应用</string>
-    <string name="unknown_sources_permission_message">要安装新版本，WiFi Frankenstein 需要允许安装来自未知来源的应用。如果您拒绝，您可以下载 APK 并手动安装。</string>
+    <string name="unknown_sources_permission_message">要安装新版本，SpectreFi 需要允许安装来自未知来源的应用。如果您拒绝，您可以下载 APK 并手动安装。</string>
     <string name="install_manual_download_message">未授予安装权限。您可以下载新版本的 APK 并手动安装。</string>
     <string name="apk_downloaded_to_downloads">APK 已下载到「下载」文件夹。</string>
     <string name="no_pins_found">未找到 PIN</string>
@@ -335,7 +335,7 @@
     <string name="collapse">折叠</string>
     <string name="expand">展开</string>
     <string name="notification_image">通知图片</string>
-    <string name="welcome_title">欢迎使用 WiFi Frankenstein</string>
+    <string name="welcome_title">欢迎使用 SpectreFi</string>
     <string name="welcome_subtitle">您的一体化 WiFi 安全工具包</string>
     <string name="welcome_agree_hint">继续即表示您同意相关条款</string>
     <string name="disclaimer_title">免责声明</string>
@@ -503,7 +503,7 @@
     <string name="password">密码</string>
     <string name="offline_algorithms_notice">这是生成器的旧版本。它只能生成 PIN 码，无法判断生成的代码是否有效。要查找可能有效的 PIN 码，请使用新版生成器。</string>
     <string name="about_title">关于应用</string>
-    <string name="about_app_description">WIFI Frankenstein 是一款用于测试您的 WiFi 网络安全、处理 WiFi 数据库、在地图上显示 WiFi 点位置等的应用。这是一个"弗兰肯斯坦"式应用，包含了各种用于处理 WiFi 的功能。</string>
+    <string name="about_app_description">SpectreFi 是一套面向您自有或已获明确授权测试的无线网络的射频审计工具。它可以查询 Wi-Fi 数据库中的接入点并在地图上显示，分析信道占用与干扰，捕获并转换 WPA 握手，还能检验您自己的口令强度。</string>
     <string name="about_app_replacement">此应用旨在取代旧的 3WiFi Locator 应用。</string>
     <string name="about_app_author">作者：LowSkillDeveloper（Telegram 用户）</string>
     <string name="github_button">在 GitHub 上打开</string>
@@ -1137,7 +1137,7 @@
     <string name="auto_scan_interfaces">自动扫描接口</string>
     <string name="extended_poll_interval">扩展轮询间隔（30 秒）</string>
     <string name="logging_settings">日志设置</string>
-    <string name="logging_info">日志保存在 WIFI-Frankenstein/logs/ 中</string>
+    <string name="logging_info">日志保存在 SpectreFi/logs/ 中</string>
     <string name="logging_session_warning">日志仅在当前会话中启用。下次启动应用时需要重新启用。</string>
     <string name="delete_log_folder">删除日志文件夹</string>
     <string name="share_last_log">分享最新日志</string>
@@ -1177,7 +1177,7 @@
     <string name="notification_channel_general">常规通知</string>
     <string name="notification_channel_general_desc">重要通知和新闻</string>
     <string name="notification_app_update_title">新版本可用</string>
-    <string name="notification_app_update_text">WiFi Frankenstein %1$s 已可下载</string>
+    <string name="notification_app_update_text">SpectreFi %1$s 已可下载</string>
     <string name="notification_db_update_title">数据库更新</string>
     <string name="notification_component_update_title">组件更新</string>
     <string name="downloading_file_progress">%1$s（%2$d%%）</string>
@@ -2853,7 +2853,7 @@
     <string name="upl_server_error">服务器错误：%1$s</string>
     <string name="upl_http_error">HTTP 错误：%1$d</string>
     <string name="ws_ssid_bssid_not_available">SSID/BSSID 不可用</string>
-    <string name="st_share_log_subject">WiFi Frankenstein 日志</string>
+    <string name="st_share_log_subject">SpectreFi 日志</string>
     <string name="st_share_log_chooser">分享日志文件</string>
     <string name="st_error_share_log">分享日志文件时出错</string>
     <string name="st_api_cache_cleared">API 3WiFi 缓存已清除</string>
@@ -3699,7 +3699,7 @@
 
     <string name="eula_accept_checkbox">我确认：仅测试我拥有或已获明确授权测试的网络；我已年满18岁；接受免责声明与使用条款（包括社区数据库条款）</string>
     <string name="eula_dialog_title">使用条款</string>
-    <string name="eula_dialog_text">WiFi Frankenstein 仅用于审计您拥有或已获明确授权测试的Wi-Fi网络，以及用于教育目的。\n\n• 未经授权访问他人网络、未经许可获取凭据、对第三方连接进行去认证/干扰以及拦截通信在大多数司法辖区均属刑事犯罪。\n\n• 通过本应用可用的所有接入点数据库（SmartLinkDB链接、用户提供的SQLite文件、3WiFi、wpa-sec）完全由第三方和社区提供。作者不托管、不验证、不认可这些数据库，对其内容概不负责。\n\n• 您本人须自行确保遵守所在国家/地区的法律。点击“我同意”即表示您接受完整免责声明。</string>
+    <string name="eula_dialog_text">SpectreFi 仅用于审计您拥有或已获明确授权测试的Wi-Fi网络，以及用于教育目的。\n\n• 未经授权访问他人网络、未经许可获取凭据、对第三方连接进行去认证/干扰以及拦截通信在大多数司法辖区均属刑事犯罪。\n\n• 通过本应用可用的所有接入点数据库（SmartLinkDB链接、用户提供的SQLite文件、3WiFi、wpa-sec）完全由第三方和社区提供。作者不托管、不验证、不认可这些数据库，对其内容概不负责。\n\n• 您本人须自行确保遵守所在国家/地区的法律。点击“我同意”即表示您接受完整免责声明。</string>
     <string name="eula_agree">我同意</string>
     <string name="eula_decline">拒绝并退出</string>
     <string name="smartlink_community_notice">社区数据库由第三方提供。作者不托管、不验证、也不认可这些数据库。</string>

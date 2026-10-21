@@ -11,7 +11,7 @@
     android:paddingTop="10dp"
     android:paddingBottom="10dp">
 
-    <com.lsd.wififrankenstein.ui.wifimap.LegendSwatchView
+    <com.spectrefi.app.ui.wifimap.LegendSwatchView
         android:id="@+id/choiceSwatch"
         android:layout_width="34dp"
         android:layout_height="34dp"

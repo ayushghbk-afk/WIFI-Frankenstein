@@ -29,5 +29,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WIFI Frankenstein"
+rootProject.name = "SpectreFi"
 include(":app")

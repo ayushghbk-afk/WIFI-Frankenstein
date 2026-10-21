@@ -210,7 +210,7 @@
         app:layout_anchor="@id/bottom_app_bar"
         app:srcCompat="@drawable/baseline_refresh_24" />
 
-    <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+    <com.spectrefi.app.util.AnimatedLoadingBar
         android:id="@+id/progressBarDatabaseCheck"
         android:layout_width="match_parent"
         android:layout_height="5dp"

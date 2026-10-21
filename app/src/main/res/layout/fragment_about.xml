@@ -31,7 +31,7 @@
             android:textAlignment="center"
             android:textSize="20sp"
             android:textStyle="bold"
-            tools:text="WIFI Frankenstein" />
+            tools:text="SpectreFi" />
 
         <TextView
             android:id="@+id/modification_warning"

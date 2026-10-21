@@ -1,0 +1,893 @@
+package com.spectrefi.app.ui.routerscan
+
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.textfield.TextInputLayout
+import com.spectrefi.app.R
+import com.spectrefi.app.data.RouterScanResult
+import com.spectrefi.app.databinding.FragmentRouterScanBinding
+import com.spectrefi.app.network.ThreeWifiAppSession
+import com.spectrefi.app.network.ThreeWifiAppUploader
+import com.spectrefi.app.ui.dbsetup.DbItem
+import com.spectrefi.app.ui.dbsetup.DbSetupViewModel
+import com.spectrefi.app.ui.dbsetup.DbType
+import com.spectrefi.app.ui.pixiedust.ConsoleAdapter
+import com.spectrefi.app.util.AuthorizedUseGate
+import com.spectrefi.app.util.ChrootManager
+import com.spectrefi.app.util.Log
+import com.spectrefi.app.util.RootlessManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.apache.commons.net.util.SubnetUtils
+
+class RouterScanFragment : Fragment() {
+
+    private var _binding: FragmentRouterScanBinding? = null
+    private val binding get() = _binding!!
+
+    private val viewModel: RouterScanViewModel by viewModels()
+    private val dbSetupViewModel: DbSetupViewModel by viewModels()
+
+    private val chrootManager by lazy { ChrootManager(requireContext()) }
+    private val rootlessManager by lazy { RootlessManager(requireContext()) }
+
+    private lateinit var resultAdapter: RouterScanAdapter
+    private lateinit var consoleAdapter: ConsoleAdapter
+    private var consoleVisible = false
+    private var showFailed = false
+    private var saveJob: Job? = null
+
+    private val exportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            requireContext().contentResolver.openOutputStream(uri)?.use { os ->
+                os.write(buildCsv().toByteArray())
+            }
+            Toast.makeText(requireContext(), R.string.router_scan_export_saved, Toast.LENGTH_SHORT)
+                .show()
+            viewModel.addConsoleLine(getString(R.string.rs_exported_csv))
+        } catch (e: Exception) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.router_scan_export_failed, e.message),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentRouterScanBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        checkChrootAndSetup()
+
+        val targetIp = arguments?.getString("target_ip", "")
+        if (!targetIp.isNullOrEmpty()) {
+            binding.editTextIp.setText(targetIp)
+        }
+    }
+
+    private fun checkChrootAndSetup() {
+        val chrootType = chrootManager.getChrootType()
+        when (chrootType) {
+            com.spectrefi.app.util.ChrootType.None -> {
+                showChrootPlaceholder(withInstall = false)
+            }
+
+            is com.spectrefi.app.util.ChrootType.RootMissing -> {
+                showChrootPlaceholder(withInstall = true)
+            }
+
+            is com.spectrefi.app.util.ChrootType.Root -> {
+                showScanInterface()
+                setupRecyclerViews()
+                setupButtons()
+                observeViewModel()
+                restoreState()
+            }
+
+            is com.spectrefi.app.util.ChrootType.RootWithoutChroot -> {
+                showChrootPlaceholder(withInstall = true)
+            }
+
+            is com.spectrefi.app.util.ChrootType.Rootless -> {
+                if (rootlessManager.isSetupCompleted()) {
+                    showScanInterface()
+                    setupRecyclerViews()
+                    setupButtons()
+                    observeViewModel()
+                    restoreState()
+                } else {
+                    showChrootPlaceholder(withInstall = false)
+                }
+            }
+        }
+    }
+
+    private fun showChrootPlaceholder(withInstall: Boolean) {
+        binding.scrollContent.visibility = View.GONE
+        binding.bottomProgressCard.visibility = View.GONE
+        binding.placeholderChroot.visibility = View.VISIBLE
+
+        if (withInstall) {
+            binding.textViewChrootMessage.text = getString(R.string.chroot_not_installed)
+            binding.buttonInstallChroot.text = getString(R.string.install_chroot)
+            binding.buttonInstallChroot.setOnClickListener { startChrootInstallation() }
+        } else {
+            binding.textViewChrootMessage.text = getString(R.string.routerscan_root_required)
+            binding.buttonInstallChroot.text = getString(R.string.go_back)
+            binding.buttonInstallChroot.setOnClickListener {
+                findNavController().navigateUp()
+            }
+        }
+    }
+
+    private fun showScanInterface() {
+        binding.placeholderChroot.visibility = View.GONE
+        binding.scrollContent.visibility = View.VISIBLE
+        binding.bottomProgressCard.visibility = View.VISIBLE
+    }
+
+    private fun startChrootInstallation() {
+        if (!chrootManager.isArmArchitecture()) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(getString(R.string.rs_unsupported_arch))
+                .setMessage(
+                    getString(
+                        R.string.chroot_arch_warning,
+                        chrootManager.getArchitecture().label
+                    )
+                )
+                .setPositiveButton(R.string.continue_text) { _, _ -> internalStartChrootInstallation() }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            return
+        }
+        internalStartChrootInstallation()
+    }
+
+    private fun internalStartChrootInstallation() {
+        binding.progressBarChrootInstall.visibility = View.VISIBLE
+        binding.textViewChrootStatus.visibility = View.VISIBLE
+        binding.buttonInstallChroot.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val success = try {
+                val result = chrootManager.downloadAndInstall(
+                    onProgress = { progress ->
+                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
+                            binding.textViewChrootStatus.text =
+                                "${getString(R.string.chroot_installing)} $progress%"
+                        }
+                    },
+                    onStatusUpdate = { status ->
+                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
+                            binding.textViewChrootStatus.text = status
+                        }
+                    }
+                )
+                result
+            } catch (e: Exception) {
+                false
+            }
+
+            if (_binding == null) return@launch
+            binding.progressBarChrootInstall.visibility = View.GONE
+            binding.buttonInstallChroot.isEnabled = true
+
+            if (success) {
+                binding.textViewChrootStatus.text = getString(R.string.chroot_installed_success)
+                checkChrootAndSetup()
+            } else {
+
+            }
+        }
+    }
+
+    private fun setupRecyclerViews() {
+        resultAdapter = RouterScanAdapter(
+            { result ->
+                showDetailsDialog(result)
+            },
+            { result ->
+                showFullOutputDialog(result)
+            },
+            { result ->
+                uploadSingleTo3WiFi(result)
+            }
+        )
+        binding.recyclerViewResults.apply {
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = resultAdapter
+        }
+
+        consoleAdapter = ConsoleAdapter(autoScroll = true)
+        binding.recyclerViewConsole.apply {
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = consoleAdapter
+        }
+        consoleAdapter.attachToRecyclerView(binding.recyclerViewConsole)
+    }
+
+    private fun setupButtons() {
+        binding.buttonScan.setOnClickListener {
+            if (viewModel.state.value?.isScanning == true) {
+                viewModel.cancelScan()
+            } else {
+                AuthorizedUseGate.confirm(
+                    this,
+                    featureKey = "router_scan",
+                    featureName = getString(R.string.feature_router_scan)
+                ) {
+                    startScan()
+                }
+            }
+        }
+
+        binding.buttonClear.setOnClickListener {
+            viewModel.clearResults()
+        }
+
+        binding.buttonExport.setOnClickListener {
+            exportToCsv()
+        }
+
+        binding.buttonUpload.setOnClickListener {
+            uploadAllTo3WiFi()
+        }
+
+        binding.buttonSettings.setOnClickListener {
+            showSettingsDialog()
+        }
+
+        binding.buttonToggleConsole.setOnClickListener {
+            toggleConsole()
+        }
+
+        binding.chipShowFailed.setOnClickListener {
+            showFailed = !showFailed
+            binding.chipShowFailed.isChecked = showFailed
+            filterResults()
+        }
+
+        setupAutoSave()
+    }
+
+    private fun setupAutoSave() {
+        val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                saveJob?.cancel()
+                saveJob = viewLifecycleOwner.lifecycleScope.launch {
+                    delay(400)
+                    val ip = binding.editTextIp.text?.toString()?.trim() ?: ""
+                    val ports = binding.editTextPorts.text?.toString()?.trim() ?: ""
+                    viewModel.saveState(ip, ports)
+                }
+            }
+        }
+        binding.editTextIp.addTextChangedListener(watcher)
+        binding.editTextPorts.addTextChangedListener(watcher)
+    }
+
+    private fun filterResults() {
+        val state = viewModel.state.value ?: return
+        val filtered = state.results.filter { result ->
+            showFailed || result.type != 2
+        }
+        resultAdapter.submitList(filtered)
+    }
+
+    private fun startScan() {
+        val ipInput = binding.editTextIp.text?.toString()?.trim() ?: ""
+        val portsInput = binding.editTextPorts.text?.toString()?.trim()?.ifEmpty { "80" } ?: "80"
+
+        viewModel.saveInputState(ipInput, portsInput)
+
+        if (ipInput.isEmpty()) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.rs_enter_ip),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val ips = parseIpRange(ipInput)
+        if (ips.isEmpty()) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.rs_invalid_ip),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        if (ips.size > 500) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.rs_range_too_large),
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        val ports = parsePorts(portsInput)
+        if (ports.isEmpty()) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.rs_invalid_port),
+                Toast.LENGTH_SHORT
+            )
+                .show()
+            return
+        }
+
+        viewModel.scanAll(ips, ports)
+    }
+
+    private fun observeViewModel() {
+        viewModel.state.observe(viewLifecycleOwner) { state ->
+            val isScanning = state.isScanning
+
+            binding.buttonScan.text = if (isScanning) {
+                getString(R.string.router_scan_cancel)
+            } else {
+                getString(R.string.router_scan_start_scan)
+            }
+
+            val percent = if (state.totalToScan > 0) {
+                (state.rsCount * 100) / state.totalToScan
+            } else {
+                0
+            }
+            binding.textScanPercent.text = getString(R.string.progress_percent, percent)
+
+            binding.progressBar.progress = state.rsCount.coerceAtMost(state.totalToScan)
+            binding.progressBar.max = state.totalToScan
+            binding.pingProgressBar.progress = state.pingCount.coerceAtMost(state.totalToScan)
+            binding.pingProgressBar.max = state.totalToScan
+
+            binding.textScanned.text =
+                getString(R.string.rs_scanned, state.rsCount, state.totalToScan)
+            binding.textPing.text =
+                getString(R.string.rs_ping, state.successfulPingCount, state.pingCount)
+            binding.textSuccess.text = getString(R.string.rs_success, state.successCount)
+            binding.textFailure.text = getString(R.string.rs_failed, state.failureCount)
+
+            if (state.error != null) {
+                Toast.makeText(requireContext(), state.error, Toast.LENGTH_SHORT).show()
+            }
+
+            filterResults()
+        }
+
+        viewModel.consoleLines.observe(viewLifecycleOwner) { lines ->
+            consoleAdapter.addLines(lines)
+        }
+
+        viewModel.scanComplete.observe(viewLifecycleOwner) { complete ->
+            if (complete) {
+                showScanCompleteDialog()
+            }
+        }
+
+        viewModel.isUploading.observe(viewLifecycleOwner) { uploading ->
+            binding.buttonUpload.isEnabled = !uploading
+        }
+
+        viewModel.uploadResult.observe(viewLifecycleOwner) { result ->
+            if (result != null) {
+                if (result.success) {
+                    Toast.makeText(requireContext(), result.message, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun parseIpRange(input: String): List<String> {
+        val ips = mutableListOf<String>()
+
+        input.split("\n").map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+            when {
+                line.contains("/") -> {
+                    try {
+                        val utils = SubnetUtils(line.replace(" ", ""))
+                        utils.isInclusiveHostCount = false
+                        val info = utils.info
+                        info.getAllAddresses()?.toList()?.forEach { ips.add(it) }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to parse CIDR: $line", e)
+                    }
+                }
+
+                line.contains("-") -> {
+                    val parts = line.split("-")
+                    if (parts.size == 2) {
+                        val start = parts[0].trim()
+                        val end = parts[1].trim()
+                        val startOctets = start.split(".")
+                        val endOctets = end.split(".")
+                        if (startOctets.size == 4 && endOctets.size == 4) {
+                            val startPrefix = start.substring(0, start.lastIndexOf('.'))
+                            val startLast = startOctets[3].toIntOrNull() ?: 1
+                            val endLast = endOctets[3].toIntOrNull() ?: 254
+                            (startLast..endLast).map { "$startPrefix.$it" }.forEach { ips.add(it) }
+                        }
+                    }
+                }
+
+                validateIp(line) -> ips.add(line)
+            }
+        }
+
+        return ips.distinct()
+    }
+
+    private fun parsePorts(portsInput: String): List<String> {
+        return portsInput.split("\n").map { it.trim() }.filter {
+            it.isNotEmpty() && it.toIntOrNull() != null
+        }.distinct()
+    }
+
+    private fun validateIp(ip: String): Boolean {
+        return ip.matches(Regex("^((0|1\\d?\\d?|2[0-4]?\\d?|25[0-5]?|[3-9]\\d?)\\.){3}(0|1\\d?\\d?|2[0-4]?\\d?|25[0-5]?|[3-9]\\d?)$"))
+    }
+
+    private fun showSettingsDialog() {
+        val settings = viewModel.getScanSettings()
+        val dialogView = layoutInflater.inflate(R.layout.dialog_router_settings, null)
+
+        val maxThreadsInput = dialogView.findViewById<TextInputLayout>(R.id.maxThreadsInput)
+        val timeoutInput = dialogView.findViewById<TextInputLayout>(R.id.timeoutInput)
+        val rsTimeoutInput = dialogView.findViewById<TextInputLayout>(R.id.rsTimeoutInput)
+        val pingBeforeScanSwitch =
+            dialogView.findViewById<SwitchMaterial>(R.id.pingBeforeScanSwitch)
+        val saveToDbSwitch = dialogView.findViewById<SwitchMaterial>(R.id.saveToDbSwitch)
+
+        maxThreadsInput.editText?.setText(settings.maxThreads.toString())
+        timeoutInput.editText?.setText(settings.timeout.toString())
+        rsTimeoutInput.editText?.setText((settings.rsTimeout / 1000).toString())
+        pingBeforeScanSwitch.isChecked = settings.pingBeforeScan
+        saveToDbSwitch.isChecked = settings.saveToLocalDb
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.rs_settings_title))
+            .setView(dialogView)
+            .setPositiveButton(getString(R.string.save)) { _, _ ->
+                val maxThreads = maxThreadsInput.editText?.text?.toString()?.toIntOrNull() ?: 10
+                val timeout = timeoutInput.editText?.text?.toString()?.toIntOrNull() ?: 1000
+                val rsTimeout =
+                    (rsTimeoutInput.editText?.text?.toString()?.toIntOrNull() ?: 30) * 1000L
+                val pingBefore = pingBeforeScanSwitch.isChecked
+                val saveToDb = saveToDbSwitch.isChecked
+                viewModel.updateSettings(
+                    maxThreads.coerceIn(1, 200),
+                    timeout.coerceIn(300, 3000).toLong(),
+                    rsTimeout.coerceIn(1000, 120000),
+                    pingBefore,
+                    saveToDb
+                )
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.rs_settings_updated),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    private fun showScanCompleteDialog() {
+        val state = viewModel.state.value ?: return
+        val successCount = state.successCount
+        val failureCount = state.failureCount
+        val totalCount = state.totalToScan
+        val activeIps = state.successfulPingCount
+        val pingedCount = state.pingCount
+
+        val successful = viewModel.getSuccessfulResults()
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.rs_scan_complete_title))
+            .setMessage(
+                getString(
+                    R.string.rs_scan_complete_message,
+                    totalCount,
+                    successCount,
+                    failureCount,
+                    activeIps,
+                    pingedCount
+                )
+            )
+            .setPositiveButton(getString(R.string.ok), null)
+            .setNeutralButton(getString(R.string.save)) { _, _ ->
+                exportToCsv()
+            }
+            .apply {
+                if (successful.isNotEmpty()) {
+                    setNegativeButton(getString(R.string.router_scan_upload_3wifi)) { _, _ ->
+                        uploadResultsTo3WiFi(successful)
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun exportToCsv() {
+        val state = viewModel.state.value ?: return
+        if (state.results.isEmpty()) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.rs_no_results_export),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        exportLauncher.launch("router_scan_results.csv")
+    }
+
+    private fun buildCsv(): String {
+        val state = viewModel.state.value ?: return ""
+        return buildString {
+            appendLine("\"IP Address\";\"Port\";\"Time (ms)\";\"Status\";\"Server Type\";\"Authorization\";\"Sec\";\"Server name\";\"BSSID\";\"ESSID\";\"Key\";\"WPS PIN\";\"Latitude\";\"Longitude\";\"LAN IP\";\"LAN Mask\";\"WAN IP\";\"WAN Mask\";\"WAN Gate\";\"DNS\"")
+            state.results.filter { it.success }.forEach { result ->
+                appendLine(
+                    "\"${result.ip}\";\"${result.port}\";\"\";\"${result.status}\";\"${result.serverType}\";\"${result.auth}\";\"${result.sec}\";\"${result.title}\";\"${result.bssid}\";\"${result.ssid}\";\"${result.psk}\";\"${result.wps}\";\"${result.lat}\";\"${result.lon}\";\"${result.lanIp}\";\"${result.lanMask}\";\"${result.wanIp}\";\"${result.wanMask}\";\"${result.wanGate}\";\"${result.dns}\""
+                )
+            }
+        }
+    }
+
+    private fun showDetailsDialog(result: RouterScanResult) {
+        val content = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 8, 24, 8)
+        }
+
+        val fields = listOf(
+            "IP" to "${result.ip}:${result.port}",
+            "Status" to result.status,
+            "SSID" to result.ssid,
+            "BSSID" to result.bssid,
+            "Auth" to result.auth,
+            "Sec" to result.sec,
+            "PSK" to result.psk,
+            "WPS" to result.wps,
+            "Title" to result.title,
+            "Type" to result.serverType,
+            "LAN IP" to result.lanIp,
+            "LAN Mask" to result.lanMask,
+            "WAN IP" to result.wanIp,
+            "WAN Mask" to result.wanMask,
+            "WAN Gate" to result.wanGate,
+            "DNS" to result.dns,
+            "Lat" to result.lat,
+            "Lon" to result.lon
+        ).filter { it.second.isNotEmpty() }
+
+        for ((label, value) in fields) {
+            val row = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                minimumHeight = (40 * resources.displayMetrics.density).toInt()
+            }
+
+            val labelView = TextView(requireContext()).apply {
+                text = label
+                textSize = 12f
+                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginEnd = (12 * resources.displayMetrics.density).toInt()
+                }
+            }
+            row.addView(labelView)
+
+            val valueView = TextView(requireContext()).apply {
+                text = value
+                textSize = 14f
+                setTextIsSelectable(true)
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            }
+            row.addView(valueView)
+
+            val copyButton = ImageButton(requireContext()).apply {
+                setImageResource(R.drawable.ic_content_copy)
+                val attrs = intArrayOf(android.R.attr.selectableItemBackgroundBorderless)
+                val ta = context.obtainStyledAttributes(attrs)
+                val bgRes = ta.getResourceId(0, 0)
+                ta.recycle()
+                setBackgroundResource(bgRes)
+                contentDescription = getString(R.string.copy)
+                setOnClickListener { copyField(label, value) }
+                layoutParams = LinearLayout.LayoutParams(
+                    (32 * resources.displayMetrics.density).toInt(),
+                    (32 * resources.displayMetrics.density).toInt()
+                )
+            }
+            row.addView(copyButton)
+
+            content.addView(row)
+        }
+
+        val scrollView = android.widget.ScrollView(requireContext()).apply {
+            addView(
+                content,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.rs_ip_port, result.ip, result.port))
+            .setView(scrollView)
+            .setPositiveButton(getString(R.string.close), null)
+            .show()
+    }
+
+    private fun copyField(label: String, value: String) {
+        try {
+            val clipboard = ContextCompat.getSystemService(
+                requireContext(),
+                android.content.ClipboardManager::class.java
+            )
+            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(label, value))
+            Toast.makeText(requireContext(), getString(R.string.copied, label), Toast.LENGTH_SHORT)
+                .show()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun showFullOutputDialog(result: RouterScanResult) {
+        val scrollView = android.widget.ScrollView(requireContext()).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val textView = TextView(requireContext()).apply {
+            textSize = 11f
+            setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+            setPadding(16, 16, 16, 16)
+            text = result.fullOutput
+            setTextIsSelectable(true)
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        scrollView.addView(
+            textView,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.rs_full_output_title, result.ip, result.port))
+            .setView(scrollView)
+            .setPositiveButton(getString(R.string.ok), null)
+            .setOnDismissListener {
+                try {
+                    val clipboard = ContextCompat.getSystemService(
+                        requireContext(),
+                        android.content.ClipboardManager::class.java
+                    )
+                    val clip =
+                        android.content.ClipData.newPlainText("full_output", result.fullOutput)
+                    clipboard?.setPrimaryClip(clip)
+                    Toast.makeText(
+                        requireContext(),
+                        getString(R.string.rs_output_copied),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } catch (_: Exception) {
+                }
+            }
+            .show()
+    }
+
+    private fun toggleConsole() {
+        consoleVisible = !consoleVisible
+        binding.consoleContent.visibility = if (consoleVisible) View.VISIBLE else View.GONE
+        binding.buttonToggleConsole.text = if (consoleVisible) {
+            getString(R.string.router_scan_console_close)
+        } else {
+            getString(R.string.router_scan_console_open)
+        }
+    }
+
+    private fun restoreState() {
+        val saved = viewModel.restoreState()
+        saved?.let { (ip, ports) ->
+            binding.editTextIp.setText(ip)
+            binding.editTextPorts.setText(ports)
+        }
+        val settings = viewModel.getScanSettings()
+        binding.editTextMaxThreads.text =
+            getString(R.string.router_scan_threads_format, settings.maxThreads)
+    }
+
+    private fun uploadSingleTo3WiFi(result: RouterScanResult) {
+        uploadResultsTo3WiFi(listOf(result))
+    }
+
+    private fun uploadAllTo3WiFi() {
+        val successful = viewModel.getSuccessfulResults()
+        if (successful.isEmpty()) {
+            Toast.makeText(requireContext(), R.string.router_scan_upload_empty, Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        uploadResultsTo3WiFi(successful)
+    }
+
+    private fun uploadResultsTo3WiFi(results: List<RouterScanResult>) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            dbSetupViewModel.loadDbList()
+            delay(300)
+            val servers = dbSetupViewModel.dbList.value?.filter { it.dbType == DbType.WIFI_API }
+                ?: emptyList()
+            val uploadServers = servers.filter {
+                !ThreeWifiAppSession.isAppServer(it) ||
+                        ThreeWifiAppSession.isAuthenticatedServer(it)
+            }
+            if (uploadServers.isEmpty()) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.router_scan_upload_no_servers,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+
+            val server = if (uploadServers.size == 1) {
+                uploadServers[0]
+            } else {
+                val names = uploadServers.map { "${it.type} - ${it.path}" }.toTypedArray()
+                var selectedIndex = -1
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(R.string.router_scan_upload_select_server)
+                    .setSingleChoiceItems(names, 0) { _, which -> selectedIndex = which }
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        if (selectedIndex >= 0) {
+                            confirmAndUpload(results, uploadServers[selectedIndex])
+                        }
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+                return@launch
+            }
+            confirmAndUpload(results, server)
+        }
+    }
+
+    private fun confirmAndUpload(results: List<RouterScanResult>, server: DbItem) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.router_scan_upload_3wifi)
+            .setMessage(
+                getString(
+                    R.string.router_scan_upload_confirm_message,
+                    results.size,
+                    server.path
+                )
+            )
+            .setPositiveButton(R.string.router_scan_upload_3wifi) { _, _ ->
+                if (ThreeWifiAppSession.isAppServer(server)) {
+                    doAppUpload(results, server)
+                } else {
+                    doUpload(results, server)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun doAppUpload(results: List<RouterScanResult>, server: DbItem) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val token = ThreeWifiAppSession.currentToken(requireContext(), server)
+            if (token == null) {
+                Toast.makeText(
+                    requireContext(), R.string.api3_error_auth_required, Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            val records = results.map { result ->
+                ThreeWifiAppUploader.SubmitRecord(
+                    bssid = result.bssid,
+                    ssid = result.ssid,
+                    security = result.sec,
+                    password = result.psk,
+                    wpsPin = result.wps,
+                    latitude = result.lat.toDoubleOrNull(),
+                    longitude = result.lon.toDoubleOrNull()
+                )
+            }
+            val report = ThreeWifiAppUploader.submitAll(
+                requireContext(), server, token, records
+            )
+            val msg = if (report.uploaded > 0) {
+                getString(R.string.pm_upload_3wifi_app_result, report.uploaded, report.failed)
+            } else {
+                getString(
+                    R.string.pm_upload_3wifi_app_failed,
+                    report.error ?: getString(R.string.unknown_error)
+                )
+            }
+            Toast.makeText(
+                requireContext(), msg,
+                if (report.uploaded > 0) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun doUpload(results: List<RouterScanResult>, server: DbItem) {
+        val commentInput =
+            com.google.android.material.textfield.TextInputEditText(requireContext()).apply {
+                setHint(R.string.router_scan_upload_comment_hint)
+                setPadding(48, 16, 48, 16)
+            }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.router_scan_upload_3wifi)
+            .setMessage(
+                "${getString(R.string.router_scan_upload_uploading)} ${results.size} ${
+                    getString(
+                        R.string.router_scan_results
+                    ).lowercase()
+                } → ${server.path}"
+            )
+            .setView(commentInput)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val comment = commentInput.text?.toString() ?: ""
+                viewModel.uploadTo3WiFi(results, server, comment)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        saveJob?.cancel()
+        saveJob = null
+        _binding = null
+    }
+
+    companion object {
+        private const val TAG = "RouterScanFragment"
+    }
+}

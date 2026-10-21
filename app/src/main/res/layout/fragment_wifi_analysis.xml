@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         app:elevation="0dp">
 
-        <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+        <com.spectrefi.app.util.AnimatedLoadingBar
             android:id="@+id/progressBarAnalysis"
             android:layout_width="match_parent"
             android:layout_height="5dp"
@@ -233,7 +233,7 @@
                             android:text="@string/wifi_spectrum"
                             android:textAppearance="?attr/textAppearanceHeadline6" />
 
-                        <com.lsd.wififrankenstein.ui.wifianalysis.WiFiSpectrumView
+                        <com.spectrefi.app.ui.wifianalysis.WiFiSpectrumView
                             android:id="@+id/wifiSpectrumView"
                             android:layout_width="match_parent"
                             android:layout_height="200dp"

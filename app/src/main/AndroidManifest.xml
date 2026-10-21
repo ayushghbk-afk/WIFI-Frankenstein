@@ -65,7 +65,7 @@
         android:requestLegacyExternalStorage="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.WIFIFrankenstein.Green"
+        android:theme="@style/Theme.SpectreFi.Green"
         android:usesCleartextTraffic="true"
         tools:replace="android:allowBackup"
         tools:targetApi="37">
@@ -144,13 +144,13 @@
         <activity
             android:name=".WelcomeActivity"
             android:exported="false"
-            android:theme="@style/Theme.WIFIFrankenstein.Green"></activity>
+            android:theme="@style/Theme.SpectreFi.Green"></activity>
 
         <activity
             android:name=".MainActivity"
             android:enabled="true"
             android:exported="false"
-            android:theme="@style/Theme.WIFIFrankenstein.Green"></activity>
+            android:theme="@style/Theme.SpectreFi.Green"></activity>
 
 
         <activity-alias
@@ -215,7 +215,7 @@
 
         <activity
             android:name=".WpsGeneratorActivity"
-            android:theme="@style/Theme.WIFIFrankenstein.Green" />
+            android:theme="@style/Theme.SpectreFi.Green" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

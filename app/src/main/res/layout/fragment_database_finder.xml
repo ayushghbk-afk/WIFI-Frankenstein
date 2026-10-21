@@ -7,7 +7,7 @@
     android:background="?android:attr/windowBackground"
     tools:context=".ui.databasefinder.DatabaseFinderFragment">
 
-    <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+    <com.spectrefi.app.util.AnimatedLoadingBar
         android:id="@+id/progressBarDatabaseCheck"
         android:layout_width="match_parent"
         android:layout_height="5dp"

@@ -61,7 +61,7 @@
             android:text="@string/advanced_settings"
             app:icon="@drawable/ic_settings" />
 
-        <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+        <com.spectrefi.app.util.AnimatedLoadingBar
             android:id="@+id/progressBar"
             android:layout_width="match_parent"
             android:layout_height="5dp"

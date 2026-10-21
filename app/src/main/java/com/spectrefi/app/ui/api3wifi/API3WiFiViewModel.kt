@@ -1,0 +1,491 @@
+package com.spectrefi.app.ui.api3wifi
+
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.viewModelScope
+import com.spectrefi.app.R
+import com.spectrefi.app.network.ThreeWifiAppClient
+import com.spectrefi.app.network.ThreeWifiAppException
+import com.spectrefi.app.network.ThreeWifiAppSession
+import com.spectrefi.app.ui.dbsetup.DbItem
+import com.spectrefi.app.ui.dbsetup.DbSetupViewModel
+import com.spectrefi.app.ui.dbsetup.DbType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+
+class API3WiFiViewModel(application: Application) : AndroidViewModel(application) {
+    private val settingsPrefs =
+        application.getSharedPreferences("API3WiFiSettings", Context.MODE_PRIVATE)
+    private val dbSetupViewModel by lazy { DbSetupViewModel(getApplication()) }
+
+    private val _apiServers = MutableLiveData<List<DbItem>>()
+    val apiServers: LiveData<List<DbItem>> = _apiServers
+
+    private val _requestResult = MutableLiveData<String>()
+    val requestResult: LiveData<String> = _requestResult
+
+    private val _requestInfo = MutableLiveData<String>()
+    val requestInfo: LiveData<String> = _requestInfo
+
+    private val _isLoading = MutableLiveData<Boolean>()
+    val isLoading: LiveData<Boolean> = _isLoading
+
+    private var network: API3WiFiNetwork? = null
+    private val wpasecHelper = WpaSecHelper()
+
+    private val _wpasecResult = MutableLiveData<WpaSecHelper.WpaSecResult?>()
+    val wpasecResult: LiveData<WpaSecHelper.WpaSecResult?> = _wpasecResult
+
+    enum class RequestType {
+        GET, POST_FORM, POST_JSON
+    }
+
+    fun loadApiServers() {
+        viewModelScope.launch {
+            dbSetupViewModel.loadDbList()
+            _apiServers.value = dbSetupViewModel.dbList.value?.filter {
+                it.dbType == DbType.WIFI_API
+            } ?: emptyList()
+        }
+    }
+
+    fun addApiServer(dbItem: DbItem) {
+        dbSetupViewModel.addDb(dbItem)
+        loadApiServers()
+    }
+
+    private fun createNetwork(serverUrl: String, readKey: String, writeKey: String?) {
+        network = API3WiFiNetwork(
+            context = getApplication(),
+            serverUrl = serverUrl,
+            connectTimeout = settingsPrefs.getInt("connectTimeout", 5000),
+            readTimeout = settingsPrefs.getInt("readTimeout", 10000),
+            includeAppIdentifier = settingsPrefs.getBoolean("includeAppIdentifier", true),
+            apiReadKey = readKey,
+            apiWriteKey = writeKey
+        )
+    }
+
+    fun executeRequest(serverUrl: String, request: API3WiFiRequest, requestType: RequestType) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val server = _apiServers.value?.find { it.path == serverUrl }
+
+                if (request is API3WiFiRequest.TrpcGetPoint || request is API3WiFiRequest.TrpcSearchNetworks) {
+                    _requestInfo.value = formatTrpcRequestInfo(serverUrl, request)
+                    val response = withContext(Dispatchers.IO) {
+                        executeTrpc(server, request)
+                    }
+                    _requestResult.value = response
+                } else {
+                    _requestInfo.value = formatRequestInfo(serverUrl, request, requestType)
+                    val readKey = server?.apiReadKey ?: "000000000000"
+                    val writeKey = server?.apiWriteKey
+                    createNetwork(serverUrl, readKey, writeKey)
+                    val response = withContext(Dispatchers.IO) {
+                        network?.executeRequest(request, requestType)
+                            ?: throw Exception("Network not initialized")
+                    }
+                    _requestResult.value = formatJsonResponse(response)
+                }
+            } catch (e: Exception) {
+                _requestResult.value =
+                    getApplication<Application>().getString(R.string.api3_error, e.message)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun checkWpaSec(bssid: String, ssid: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    wpasecHelper.checkBssidSsid(bssid, ssid)
+                }
+                _wpasecResult.value = result
+            } catch (e: Exception) {
+                _wpasecResult.value = WpaSecHelper.WpaSecResult(bssid, ssid, false, e.message)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private suspend fun executeTrpc(server: DbItem?, request: API3WiFiRequest): String {
+        val app = getApplication<Application>()
+        if (server == null) return app.getString(R.string.api3_error_no_server)
+
+        val live = dbSetupViewModel.dbList.value?.find { it.id == server.id } ?: server
+        var token = ThreeWifiAppSession.currentToken(app, live)
+            ?: return app.getString(R.string.api3_error_auth_required)
+
+        val client = ThreeWifiAppClient.get(app, live.path)
+        suspend fun perform(): String = when (request) {
+            is API3WiFiRequest.TrpcGetPoint ->
+                client.getAccessPointDetails(request.id.toLong(), token)?.toString(4)
+                    ?: app.getString(R.string.api3_error_no_results)
+
+            is API3WiFiRequest.TrpcSearchNetworks ->
+                client.searchNetworks(
+                    query = request.query,
+                    byBssid = request.type == "bssid",
+                    limit = TRPC_SEARCH_LIMIT,
+                    token = token
+                ).toString(4)
+
+            else -> app.getString(R.string.invalid_request_params)
+        }
+
+        return try {
+            perform()
+        } catch (e: ThreeWifiAppException) {
+            if (e.isUnauthorized) {
+                val renewed = ThreeWifiAppSession.refresh(app, live)
+                if (renewed != null) {
+                    token = renewed
+                    try {
+                        perform()
+                    } catch (e2: ThreeWifiAppException) {
+                        describeTrpcError(app, e2)
+                    }
+                } else {
+                    describeTrpcError(app, e)
+                }
+            } else {
+                describeTrpcError(app, e)
+            }
+        } catch (e: Exception) {
+            app.getString(R.string.api3_error, e.message)
+        }
+    }
+
+    private fun describeTrpcError(app: Application, e: ThreeWifiAppException): String {
+        return when {
+            e.requiresAppUpdate -> app.getString(R.string.api3_error_update_required)
+            e.isUnauthorized -> app.getString(R.string.api3_error_auth_required)
+            e.isValidationError && e.missingFields.isNotEmpty() ->
+                app.getString(R.string.api3_error_validation, e.missingFields.joinToString(", "))
+
+            else -> app.getString(R.string.api3_error, e.serverMessage ?: e.message)
+        }
+    }
+
+    private fun formatTrpcRequestInfo(serverUrl: String, request: API3WiFiRequest): String {
+        val app = getApplication<Application>()
+        val sb = StringBuilder()
+        sb.appendLine(
+            app.getString(
+                R.string.api3_url_line,
+                "$serverUrl/trpc/${request.methodName}"
+            )
+        )
+        sb.appendLine(app.getString(R.string.api3_protocol_trpc))
+        sb.appendLine()
+        sb.appendLine(app.getString(R.string.api3_parameters))
+        when (request) {
+            is API3WiFiRequest.TrpcGetPoint -> sb.appendLine(
+                app.getString(
+                    R.string.api3_id_line,
+                    request.id
+                )
+            )
+
+            is API3WiFiRequest.TrpcSearchNetworks -> {
+                sb.appendLine(trpcSearchFieldLine(app, request))
+                sb.appendLine(app.getString(R.string.api3_limit_line))
+            }
+
+            else -> {}
+        }
+        return sb.toString()
+    }
+
+    private fun trpcSearchFieldLine(
+        app: Application,
+        request: API3WiFiRequest.TrpcSearchNetworks
+    ): String {
+        return app.getString(
+            if (request.type == "bssid") R.string.api3_bssid_line else R.string.api3_ssid_line,
+            request.query
+        )
+    }
+
+    fun executeSimpleRequestWithRetry(serverUrl: String, request: API3WiFiRequest) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _requestInfo.value = formatRequestInfo(serverUrl, request, RequestType.POST_JSON)
+            try {
+                val server = _apiServers.value?.find { it.path == serverUrl }
+                val readKey = server?.apiReadKey ?: "000000000000"
+                val writeKey = server?.apiWriteKey
+
+                createNetwork(serverUrl, readKey, writeKey)
+
+                var finalResponse = ""
+
+                try {
+                    val postResponse = withContext(Dispatchers.IO) {
+                        network?.executeRequest(request, RequestType.POST_JSON)
+                            ?: throw Exception("Network not initialized")
+                    }
+
+                    if (isSuccessfulResponse(postResponse)) {
+                        finalResponse = formatJsonResponse(postResponse)
+                    } else {
+                        throw Exception("POST returned result: false")
+                    }
+                } catch (e: Exception) {
+                    finalResponse =
+                        "${getApplication<Application>().getString(R.string.post_request_failed)}\n" +
+                                "${getApplication<Application>().getString(R.string.separator_line)}\n" +
+                                getApplication<Application>().getString(
+                                    R.string.api3_error,
+                                    e.message
+                                ) + "\n\n"
+
+                    finalResponse += "${getApplication<Application>().getString(R.string.retry_with_get)}\n" +
+                            "${getApplication<Application>().getString(R.string.separator_line)}\n\n"
+
+                    try {
+                        val getResponse = withContext(Dispatchers.IO) {
+                            network?.executeRequest(request, RequestType.GET)
+                                ?: throw Exception("Network not initialized")
+                        }
+
+                        finalResponse += "${getApplication<Application>().getString(R.string.get_request_response)}\n" +
+                                "${getApplication<Application>().getString(R.string.separator_line)}\n" +
+                                formatJsonResponse(getResponse)
+                    } catch (e2: Exception) {
+                        finalResponse += "${getApplication<Application>().getString(R.string.get_request_response)}\n" +
+                                "${getApplication<Application>().getString(R.string.separator_line)}\n" +
+                                getApplication<Application>().getString(
+                                    R.string.api3_error,
+                                    e2.message
+                                )
+                    }
+                }
+
+                _requestResult.value = finalResponse
+            } catch (e: Exception) {
+                _requestResult.value =
+                    getApplication<Application>().getString(R.string.api3_error, e.message)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private fun formatRequestInfo(
+        serverUrl: String,
+        request: API3WiFiRequest,
+        requestType: RequestType
+    ): String {
+        val app = getApplication<Application>()
+        val sb = StringBuilder()
+        sb.appendLine(app.getString(R.string.api3_url_line, "$serverUrl/api/${request.methodName}"))
+        sb.appendLine(app.getString(R.string.api3_method_line, requestType.name))
+        sb.appendLine(
+            app.getString(
+                R.string.api3_request_type_line,
+                when (requestType) {
+                    RequestType.GET -> app.getString(R.string.api3_request_type_get)
+                    RequestType.POST_FORM -> app.getString(R.string.api3_request_type_form)
+                    RequestType.POST_JSON -> app.getString(R.string.api3_request_type_json)
+                }
+            )
+        )
+        sb.appendLine()
+
+        when (requestType) {
+            RequestType.GET -> {
+                sb.appendLine(app.getString(R.string.api3_query_parameters))
+                addRequestParams(app, sb, request)
+            }
+
+            RequestType.POST_FORM -> {
+                sb.appendLine(app.getString(R.string.api3_form_data))
+                addRequestParams(app, sb, request)
+            }
+
+            RequestType.POST_JSON -> {
+                sb.appendLine(app.getString(R.string.api3_json_body))
+                sb.append(createJsonBodyString(request))
+            }
+        }
+
+        return sb.toString()
+    }
+
+    private fun addRequestParams(app: Application, sb: StringBuilder, request: API3WiFiRequest) {
+        when (request) {
+            is API3WiFiRequest.ApiQuery -> {
+                sb.appendLine(app.getString(R.string.api3_key_line, request.key))
+                request.bssidList?.let { list ->
+                    sb.appendLine(
+                        app.getString(
+                            R.string.api3_bssid_line,
+                            if (list.size == 1) list.first() else JSONArray(list).toString()
+                        )
+                    )
+                }
+                request.essidList?.let { list ->
+                    sb.appendLine(
+                        app.getString(
+                            R.string.api3_essid_line,
+                            if (list.size == 1) list.first() else JSONArray(list).toString()
+                        )
+                    )
+                }
+                sb.appendLine(app.getString(R.string.api3_sens_line, request.sens.toString()))
+            }
+
+            is API3WiFiRequest.ApiWps -> {
+                sb.appendLine(app.getString(R.string.api3_key_line, request.key))
+                sb.appendLine(
+                    app.getString(
+                        R.string.api3_bssid_line,
+                        if (request.bssidList.size == 1) request.bssidList.first() else JSONArray(
+                            request.bssidList
+                        ).toString()
+                    )
+                )
+            }
+
+            is API3WiFiRequest.ApiDev -> {
+                sb.appendLine(app.getString(R.string.api3_key_line, request.key))
+                sb.appendLine(
+                    app.getString(
+                        R.string.api3_bssid_line,
+                        if (request.bssidList.size == 1) request.bssidList.first() else JSONArray(
+                            request.bssidList
+                        ).toString()
+                    )
+                )
+                sb.appendLine(app.getString(R.string.api3_nocli_line, request.nocli.toString()))
+            }
+
+            is API3WiFiRequest.ApiRanges -> {
+                sb.appendLine(app.getString(R.string.api3_key_line, request.key))
+                sb.appendLine(app.getString(R.string.api3_lat_line, request.lat.toString()))
+                sb.appendLine(app.getString(R.string.api3_lon_line, request.lon.toString()))
+                sb.appendLine(app.getString(R.string.api3_rad_line, request.rad.toString()))
+            }
+
+            is API3WiFiRequest.ApiKeys -> {
+                sb.appendLine(app.getString(R.string.api3_login_line, request.login))
+                sb.appendLine(app.getString(R.string.api3_password_line, request.password))
+                sb.appendLine(app.getString(R.string.api3_genread_line, request.genRead.toString()))
+                sb.appendLine(
+                    app.getString(
+                        R.string.api3_genwrite_line,
+                        request.genWrite.toString()
+                    )
+                )
+            }
+
+            is API3WiFiRequest.TrpcGetPoint -> {
+                sb.appendLine(app.getString(R.string.api3_id_line, request.id))
+            }
+
+            is API3WiFiRequest.TrpcSearchNetworks -> {
+                sb.appendLine(trpcSearchFieldLine(app, request))
+            }
+        }
+    }
+
+    private fun createJsonBodyString(request: API3WiFiRequest): String {
+        val jsonObject = when (request) {
+            is API3WiFiRequest.ApiKeys -> JSONObject().apply {
+                put("login", request.login)
+                put("password", request.password)
+                put("genread", request.genRead)
+                put("genwrite", request.genWrite)
+            }
+
+            is API3WiFiRequest.ApiQuery -> JSONObject().apply {
+                put("key", request.key)
+                request.bssidList?.let { list ->
+                    put("bssid", if (list.size == 1) list.first() else JSONArray(list))
+                }
+                request.essidList?.let { list ->
+                    put("essid", if (list.size == 1) list.first() else JSONArray(list))
+                }
+                put("sens", request.sens)
+            }
+
+            is API3WiFiRequest.ApiWps -> JSONObject().apply {
+                put("key", request.key)
+                put(
+                    "bssid",
+                    if (request.bssidList.size == 1) request.bssidList.first() else JSONArray(
+                        request.bssidList
+                    )
+                )
+            }
+
+            is API3WiFiRequest.ApiDev -> JSONObject().apply {
+                put("key", request.key)
+                put(
+                    "bssid",
+                    if (request.bssidList.size == 1) request.bssidList.first() else JSONArray(
+                        request.bssidList
+                    )
+                )
+                put("nocli", request.nocli)
+            }
+
+            is API3WiFiRequest.ApiRanges -> JSONObject().apply {
+                put("key", request.key)
+                put("lat", request.lat)
+                put("lon", request.lon)
+                put("rad", request.rad)
+            }
+
+            is API3WiFiRequest.TrpcGetPoint -> JSONObject().apply {
+                put("id", request.id)
+            }
+
+            is API3WiFiRequest.TrpcSearchNetworks -> JSONObject().apply {
+                put(request.type, request.query)
+                put("limit", 100)
+            }
+        }
+        return jsonObject.toString(4)
+    }
+
+    private fun isSuccessfulResponse(jsonString: String): Boolean {
+        return try {
+            val json = JSONObject(jsonString)
+            json.optBoolean("result", false)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun formatJsonResponse(jsonString: String): String {
+        return try {
+            val json = JSONObject(jsonString)
+            json.toString(4)
+        } catch (_: Exception) {
+            try {
+                val jsonArray = JSONArray(jsonString)
+                jsonArray.toString(4)
+            } catch (_: Exception) {
+                jsonString
+            }
+        }
+    }
+
+    private companion object {
+        const val TRPC_SEARCH_LIMIT = 100
+    }
+}

@@ -1,0 +1,662 @@
+package com.spectrefi.app.util
+
+import android.content.Context
+import android.net.Uri
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.concurrent.atomic.AtomicLong
+
+data class OfflineProgress(
+    val currentPassword: String,
+    val attempts: Long,
+    val totalPasswords: Long,
+    val speed: Double,
+    val elapsedMs: Long,
+    val etaMs: Long,
+    val offset: Long = 0
+)
+
+data class OfflineResult(
+    val foundPassword: String?,
+    val attempts: Long,
+    val elapsedMs: Long,
+    val averageSpeed: Double,
+    val cancelled: Boolean = false,
+    val offset: Long = 0
+)
+
+class PskOfflineBruteForceRunner(private val context: Context) {
+
+    companion object {
+        private const val TAG = "PskOfflineBruteForceRunner"
+        private const val CHUNK_SIZE = 50
+        private const val PAUSE_POLL_MS = 200L
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var crackJob: Job? = null
+
+    @Volatile
+    private var cancelled = false
+
+    @Volatile
+    private var foundDelivered = false
+
+    @Volatile
+    var paused = false
+
+    private val totalPausedMs = AtomicLong(0)
+
+    @Volatile
+    private var pauseStartedAt = 0L
+
+    fun pause() {
+        if (!paused) {
+            pauseStartedAt = System.currentTimeMillis()
+            paused = true
+        }
+    }
+
+    fun resume() {
+        if (paused) {
+            val started = pauseStartedAt
+            pauseStartedAt = 0
+            if (started > 0) {
+                totalPausedMs.addAndGet(System.currentTimeMillis() - started)
+            }
+            paused = false
+        }
+    }
+
+    private fun activeElapsed(startTime: Long): Long {
+        val now = System.currentTimeMillis()
+        var elapsed = now - startTime - totalPausedMs.get()
+        if (paused && pauseStartedAt > 0) {
+            elapsed -= (now - pauseStartedAt)
+        }
+        return elapsed.coerceAtLeast(0)
+    }
+
+    private data class ChunkData(
+        val passwords: List<String>,
+        val offset: Long
+    )
+
+    suspend fun crackFromWordlist(
+        handshakeHash: HandshakeHash,
+        extraHashes: List<HandshakeHash> = emptyList(),
+        wordlistUri: Uri,
+        threadCount: Int = Runtime.getRuntime().availableProcessors().coerceAtLeast(1),
+        startOffset: Long = 0,
+        onProgress: ((OfflineProgress) -> Unit)? = null,
+        onPasswordFound: ((String) -> Unit)? = null
+    ): OfflineResult = withContext(Dispatchers.IO) {
+        cancelled = false
+        paused = false
+        pauseStartedAt = 0
+        totalPausedMs.set(0)
+        foundDelivered = false
+        val startTime = System.currentTimeMillis()
+
+        val allHashes = (listOf(handshakeHash) + extraHashes).distinctBy { it.dedupKey() }
+
+        val totalPasswords = countLines(wordlistUri)
+        val totalAttempts = AtomicLong()
+        var foundPassword: String? = null
+        var fileOffset = startOffset
+        val speedWindow = mutableListOf<Pair<Long, Long>>()
+        val workerCount = threadCount.coerceAtLeast(1)
+
+        Log.d(TAG, "=== OFFLINE BRUTE FORCE START ===")
+        Log.d(
+            TAG,
+            "Handshake: ${handshakeHash.essid} / ${handshakeHash.macAp} (${allHashes.size} candidate hash(es))"
+        )
+        Log.d(TAG, "Type: ${handshakeHash.type}, Keyver: ${handshakeHash.keyver}")
+        Log.d(
+            TAG,
+            "Wordlist lines: $totalPasswords, Threads: $workerCount, Start offset: $startOffset"
+        )
+
+        try {
+            val inputStream = context.contentResolver.openInputStream(wordlistUri)
+                ?: return@withContext OfflineResult(null, 0, 0, 0.0, offset = startOffset)
+
+            val progressChannel = Channel<OfflineProgress>(Channel.CONFLATED)
+            val resultChannel = Channel<String?>(Channel.CONFLATED)
+            val chunkChannel = Channel<ChunkData>(capacity = workerCount * 4)
+
+            val producerJob = scope.launch(Dispatchers.IO) {
+                try {
+                    supervisorScope {
+                        val reader = BufferedReader(InputStreamReader(inputStream))
+                        var linesSkipped = 0L
+                        var batch = mutableListOf<String>()
+
+                        reader.use { br ->
+                            var line: String?
+
+                            if (startOffset > 0) {
+                                while (linesSkipped < startOffset && br.readLine()
+                                        .also { line = it } != null
+                                ) {
+                                    linesSkipped++
+                                    fileOffset++
+                                }
+                            }
+
+                            while (br.readLine().also { line = it } != null && !cancelled) {
+                                while (paused && !cancelled) {
+                                    delay(PAUSE_POLL_MS)
+                                }
+                                if (cancelled) break
+
+                                val pw = line!!.trim().trimStart('\uFEFF')
+                                fileOffset++
+                                if (pw.isEmpty() || pw.startsWith("#")) continue
+                                batch.add(pw)
+
+                                if (batch.size >= CHUNK_SIZE) {
+                                    chunkChannel.send(ChunkData(batch.toList(), fileOffset))
+                                    batch = mutableListOf()
+                                }
+                            }
+                        }
+
+                        if (batch.isNotEmpty() && !cancelled) {
+                            chunkChannel.send(ChunkData(batch.toList(), fileOffset))
+                        }
+                    }
+                } finally {
+                    chunkChannel.close()
+                }
+            }
+
+            val workers = List(workerCount) {
+                scope.launch {
+                    for (chunk in chunkChannel) {
+                        crackChunk(
+                            chunk.passwords,
+                            allHashes,
+                            progressChannel,
+                            resultChannel,
+                            chunk.offset,
+                            totalAttempts
+                        )
+                    }
+                }
+            }
+
+            val progressConsumerJob = scope.launch(Dispatchers.IO) {
+                Log.d(TAG, "progressConsumerJob started on IO")
+                var progressCount = 0
+                for (p in progressChannel) {
+                    val attemptsSnapshot = totalAttempts.get()
+                    progressCount++
+                    if (progressCount % 10 == 1) {
+                        Log.d(
+                            TAG,
+                            "progress #$progressCount: attempts=$attemptsSnapshot curr=${
+                                p.currentPassword.take(20)
+                            }"
+                        )
+                    }
+                    val elapsed = activeElapsed(startTime)
+
+                    speedWindow.add(elapsed to attemptsSnapshot)
+                    while (speedWindow.size > 2 && speedWindow.last().first - speedWindow.first().first > 5000) {
+                        speedWindow.removeAt(0)
+                    }
+
+                    val speed = if (speedWindow.size >= 2) {
+                        val dt = speedWindow.last().first - speedWindow.first().first
+                        val da = speedWindow.last().second - speedWindow.first().second
+                        if (dt > 0) da.toDouble() / dt * 1000.0 else 0.0
+                    } else 0.0
+
+                    val etaMs = if (speed > 0 && totalPasswords > 0) {
+                        ((totalPasswords - attemptsSnapshot) / speed * 1000.0).toLong().coerceAtLeast(0)
+                    } else 0L
+
+                    onProgress?.invoke(
+                        OfflineProgress(
+                            currentPassword = p.currentPassword,
+                            attempts = attemptsSnapshot,
+                            totalPasswords = totalPasswords,
+                            speed = speed,
+                            elapsedMs = elapsed,
+                            etaMs = etaMs,
+                            offset = p.offset
+                        )
+                    )
+                }
+            }
+
+            val resultConsumerJob = scope.launch(Dispatchers.IO) {
+                Log.d(TAG, "resultConsumerJob started on IO")
+                for (password in resultChannel) {
+                    if (password != null) {
+                        foundDelivered = true
+                        foundPassword = password
+                        Log.d(TAG, "!!! PASSWORD FOUND: $password !!!")
+                        onPasswordFound?.invoke(password)
+                        cancelled = true
+                    }
+                }
+            }
+
+            producerJob.join()
+            workers.joinAll()
+            progressChannel.close()
+            resultChannel.close()
+            progressConsumerJob.join()
+            resultConsumerJob.join()
+
+        } catch (e: Exception) {
+            if (!cancelled) {
+                Log.e(TAG, "Crack failed", e)
+            }
+        } finally {
+            crackJob = null
+        }
+
+        val elapsed = activeElapsed(startTime)
+        val attempts = totalAttempts.get()
+        val avgSpeed = if (elapsed > 0) attempts.toDouble() / elapsed * 1000.0 else 0.0
+
+        Log.d(TAG, "=== OFFLINE BRUTE FORCE END ===")
+        Log.d(
+            TAG,
+            "Found: ${foundPassword != null}, Attempts: $attempts, Elapsed: ${elapsed}ms, Avg speed: ${
+                "%.1f".format(avgSpeed)
+            } pw/s"
+        )
+
+        OfflineResult(
+            foundPassword, attempts, elapsed, avgSpeed,
+            cancelled = cancelled && foundPassword == null,
+            offset = fileOffset
+        )
+    }
+
+    suspend fun crackFromMask(
+        handshakeHash: HandshakeHash,
+        extraHashes: List<HandshakeHash> = emptyList(),
+        mask: String,
+        threadCount: Int = Runtime.getRuntime().availableProcessors().coerceAtLeast(1),
+        startOffset: Long = 0,
+        onProgress: ((OfflineProgress) -> Unit)? = null,
+        onPasswordFound: ((String) -> Unit)? = null
+    ): OfflineResult {
+        val parsed = MaskCracker.parse(mask)
+        if (!parsed.isValid || parsed.totalCombinations <= 0) {
+            return OfflineResult(null, 0, 0, 0.0, offset = 0)
+        }
+        cancelled = false
+        paused = false
+        pauseStartedAt = 0
+        totalPausedMs.set(0)
+        foundDelivered = false
+        val startTime = System.currentTimeMillis()
+        val allHashes = (listOf(handshakeHash) + extraHashes).distinctBy { it.dedupKey() }
+        val totalPasswords = parsed.totalCombinations
+        val totalAttempts = AtomicLong()
+        var foundPassword: String? = null
+        var currentIndex = startOffset
+        val speedWindow = mutableListOf<Pair<Long, Long>>()
+        val workerCount = threadCount.coerceAtLeast(1)
+
+        try {
+            val progressChannel = Channel<OfflineProgress>(Channel.CONFLATED)
+            val resultChannel = Channel<String?>(Channel.CONFLATED)
+            val chunkChannel = Channel<ChunkData>(capacity = workerCount * 4)
+
+            val producerJob = scope.launch(Dispatchers.IO) {
+                try {
+                    var index = startOffset
+                    while (index < totalPasswords && !cancelled) {
+                        while (paused && !cancelled) delay(PAUSE_POLL_MS)
+                        if (cancelled) break
+                        val batchEnd = minOf(index + CHUNK_SIZE, totalPasswords)
+                        val batch = (index until batchEnd).map {
+                            MaskCracker.generateAt(parsed, it)
+                        }
+                        chunkChannel.send(ChunkData(batch, batchEnd))
+                        index = batchEnd
+                    }
+                } finally {
+                    chunkChannel.close()
+                }
+            }
+
+            val workers = List(workerCount) {
+                scope.launch {
+                    for (chunk in chunkChannel) {
+                        crackChunk(chunk.passwords, allHashes, progressChannel,
+                            resultChannel, chunk.offset, totalAttempts)
+                    }
+                }
+            }
+
+            val progressConsumerJob = scope.launch(Dispatchers.IO) {
+                for (p in progressChannel) {
+                    if (foundDelivered) continue
+                    val attemptsSnapshot = totalAttempts.get()
+                    val elapsed = activeElapsed(startTime)
+                    speedWindow.add(elapsed to attemptsSnapshot)
+                    while (speedWindow.size > 2 &&
+                        speedWindow.last().first - speedWindow.first().first > 5000) {
+                        speedWindow.removeAt(0)
+                    }
+                    val speed = if (speedWindow.size >= 2) {
+                        val dt = speedWindow.last().first - speedWindow.first().first
+                        val da = speedWindow.last().second - speedWindow.first().second
+                        if (dt > 0) da.toDouble() / dt * 1000.0 else 0.0
+                    } else 0.0
+                    val etaMs = if (speed > 0 && totalPasswords > attemptsSnapshot) {
+                        ((totalPasswords - attemptsSnapshot) / speed * 1000.0).toLong().coerceAtLeast(0)
+                    } else 0L
+                    onProgress?.invoke(OfflineProgress(
+                        p.currentPassword, attemptsSnapshot, totalPasswords,
+                        speed, elapsed, etaMs, p.offset
+                    ))
+                }
+            }
+
+            val resultConsumerJob = scope.launch(Dispatchers.IO) {
+                for (password in resultChannel) {
+                    if (password != null) {
+                        foundDelivered = true
+                        foundPassword = password
+                        onPasswordFound?.invoke(password)
+                        cancelled = true
+                    }
+                }
+            }
+
+            producerJob.join()
+            workers.joinAll()
+            progressChannel.close()
+            resultChannel.close()
+            progressConsumerJob.join()
+            resultConsumerJob.join()
+        } catch (e: Exception) {
+            if (!cancelled) Log.e(TAG, "Mask crack failed", e)
+        }
+
+        val elapsed = activeElapsed(startTime)
+        val attempts = totalAttempts.get()
+        val avgSpeed = if (elapsed > 0) attempts.toDouble() / elapsed * 1000.0 else 0.0
+        return OfflineResult(foundPassword, attempts, elapsed, avgSpeed,
+            cancelled = cancelled && foundPassword == null, offset = currentIndex)
+    }
+
+    private suspend fun crackChunk(
+        passwords: List<String>,
+        hashes: List<HandshakeHash>,
+        progressChannel: Channel<OfflineProgress>,
+        resultChannel: Channel<String?>,
+        chunkOffset: Long,
+        attemptsAccumulator: AtomicLong
+    ) {
+        suspend fun report(p: OfflineProgress) {
+            attemptsAccumulator.addAndGet(p.attempts)
+            if (!foundDelivered) progressChannel.send(p)
+        }
+
+        try {
+            if (hashes.isEmpty() || passwords.isEmpty()) {
+                report(
+                    OfflineProgress(
+                        passwords.firstOrNull() ?: "?",
+                        0,
+                        0,
+                        0.0,
+                        0,
+                        0,
+                        chunkOffset
+                    )
+                )
+                return
+            }
+
+            Log.d(
+                TAG,
+                "chunk start: size=${passwords.size}, first=${passwords.firstOrNull()?.take(20)}"
+            )
+
+            val nativeHashes = hashes.filter { h ->
+                if (!NativeCracker.isAvailable) return@filter false
+                val hasMic = h.pmkidOrMic.length >= 32
+                val hasEapolData = h.anonce != null && h.eapol != null
+                when {
+                    h.type == HandshakeType.PMKID -> hasMic
+
+                    hasEapolData -> hasMic &&
+                            (h.keyver ?: WpaCracker.extractKeyver(
+                                WpaCrypto.hexToBytes(h.eapol)
+                            )) in 1..2
+
+                    else -> false
+                }
+            }
+            val fallbackHashes = hashes.filter { h -> nativeHashes.none { it === h } }
+            val nativeGroups = nativeHashes.groupBy { it.essid }
+            val miniBatchSize = NativeCracker.BATCH_SIZE
+            val allHashesForVerification = hashes
+
+            var chunkAttempts = 0
+            var lastPassword = ""
+
+            if (nativeHashes.isNotEmpty()) {
+                for (i in passwords.indices step miniBatchSize) {
+                    if (cancelled) break
+                    while (paused && !cancelled) {
+                        delay(PAUSE_POLL_MS)
+                    }
+                    if (cancelled) break
+                    val end = minOf(i + miniBatchSize, passwords.size)
+                    val batch = passwords.subList(i, end).toTypedArray()
+                    var found: String? = null
+                    var nativeFailed = false
+                    for ((_, group) in nativeGroups) {
+                        if (found != null || cancelled) break
+                        for (subGroup in group.chunked(32)) {
+                            if (found != null || cancelled) break
+                            val idx = try {
+                                NativeCracker.crackBatchMultiHex(
+                                    batch,
+                                    subGroup[0].essid,
+                                    Array(subGroup.size) { g ->
+                                        subGroup[g].macAp.replace(":", "").lowercase()
+                                    },
+                                    Array(subGroup.size) { g ->
+                                        subGroup[g].macSta.replace(":", "").lowercase()
+                                    },
+                                    Array(subGroup.size) { g ->
+                                        subGroup[g].anonce?.lowercase() ?: ""
+                                    },
+                                    Array(subGroup.size) { g ->
+                                        subGroup[g].eapol?.lowercase() ?: ""
+                                    },
+                                    Array(subGroup.size) { g ->
+                                        subGroup[g].pmkidOrMic.lowercase()
+                                    },
+                                    IntArray(subGroup.size) { g -> subGroup[g].keyver ?: 2 },
+                                    IntArray(subGroup.size) { g ->
+                                        when (subGroup[g].type) {
+                                            HandshakeType.PMKID -> 1
+                                            HandshakeType.EAPOL -> 2
+                                            HandshakeType.PMKID_EAPOL -> 3
+                                        }
+                                    }
+                                )
+                            } catch (e: Throwable) {
+                                nativeFailed = true
+                                Log.e(TAG, "Native batch error: ${e.message}", e)
+                                -1
+                            }
+                            if (idx >= 0 && idx < batch.size) {
+                                val candidate = batch[idx]
+                                if (subGroup.any { WpaCracker.tryPasswordAny(candidate, it) }) {
+                                    found = candidate
+                                    break
+                                } else {
+                                    Log.w(
+                                        TAG,
+                                        "Native hit at $idx rejected by JVM; re-verifying batch"
+                                    )
+                                    for (pw in batch) {
+                                        if (allHashesForVerification.any {
+                                                WpaCracker.tryPasswordAny(pw, it)
+                                            }
+                                        ) {
+                                            found = pw
+                                            break
+                                        }
+                                    }
+                                }
+                                if (found != null) break
+                            }
+                        }
+                    }
+                    if (found == null && nativeFailed) {
+                        for (pw in batch) {
+                            if (nativeHashes.any { WpaCracker.tryPasswordAny(pw, it) }) {
+                                found = pw
+                                break
+                            }
+                        }
+                    }
+                    val batchSize = end - i
+                    chunkAttempts += batchSize
+                    lastPassword = batch.last()
+                    if (found != null) {
+                        Log.d(TAG, "!!! FOUND PASSWORD (native, JVM-confirmed): $found !!!")
+                        report(
+                            OfflineProgress(
+                                lastPassword,
+                                chunkAttempts.toLong(),
+                                0,
+                                0.0,
+                                0,
+                                0,
+                                chunkOffset
+                            )
+                        )
+                        resultChannel.send(found)
+                        cancelled = true
+                        return@crackChunk
+                    }
+                }
+            }
+
+            if (fallbackHashes.isNotEmpty()) {
+                for (password in passwords) {
+                    if (cancelled) break
+                    while (paused && !cancelled) {
+                        delay(PAUSE_POLL_MS)
+                    }
+                    if (cancelled) break
+                    lastPassword = password
+                    chunkAttempts++
+                    for (h in fallbackHashes) {
+                        if (WpaCracker.tryPasswordAny(password, h)) {
+                            Log.d(TAG, "!!! FOUND PASSWORD: $password !!!")
+                            report(
+                                OfflineProgress(
+                                    password,
+                                    chunkAttempts.toLong(),
+                                    0,
+                                    0.0,
+                                    0,
+                                    0,
+                                    chunkOffset
+                                )
+                            )
+                            resultChannel.send(password)
+                            cancelled = true
+                            return@crackChunk
+                        }
+                    }
+                }
+            }
+            Log.d(TAG, "chunk done: $chunkAttempts attempts, last=${lastPassword.take(20)}")
+            report(
+                OfflineProgress(
+                    lastPassword,
+                    chunkAttempts.toLong(),
+                    0,
+                    0.0,
+                    0,
+                    0,
+                    chunkOffset
+                )
+            )
+        } catch (e: Throwable) {
+            Log.e(TAG, "chunk CRASHED: ${e.message}", e)
+            report(
+                OfflineProgress(
+                    passwords.firstOrNull() ?: "?",
+                    0,
+                    0,
+                    0.0,
+                    0,
+                    0,
+                    chunkOffset
+                )
+            )
+        }
+    }
+
+    private suspend fun countLines(uri: Uri): Long {
+        return withContext(Dispatchers.IO) {
+            try {
+                val inputStream =
+                    context.contentResolver.openInputStream(uri) ?: return@withContext 0L
+                inputStream.use { stream ->
+                    var count = 0L
+                    var sawAnyByte = false
+                    var lastByte: Byte = '\n'.code.toByte()
+                    val buffer = ByteArray(8192)
+                    var read: Int
+                    while (stream.read(buffer).also { read = it } != -1) {
+                        for (i in 0 until read) {
+                            sawAnyByte = true
+                            lastByte = buffer[i]
+                            if (buffer[i] == '\n'.code.toByte()) count++
+                        }
+                    }
+                    if (sawAnyByte && lastByte != '\n'.code.toByte()) count++
+                    count
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "countLines error", e)
+                0L
+            }
+        }
+    }
+
+    fun cancel() {
+        cancelled = true
+        crackJob?.cancel()
+        crackJob = null
+        scope.cancel()
+    }
+
+    fun destroy() {
+        cancel()
+        scope.cancel()
+    }
+}

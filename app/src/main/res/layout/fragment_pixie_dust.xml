@@ -833,7 +833,7 @@
         </androidx.core.widget.NestedScrollView>
     </ViewFlipper>
 
-    <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+    <com.spectrefi.app.util.AnimatedLoadingBar
         android:id="@+id/progressBar"
         android:layout_width="match_parent"
         android:layout_height="6dp"

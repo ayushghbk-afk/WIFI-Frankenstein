@@ -65,13 +65,13 @@
     <string name="location_permission_required">Для сканування WiFi мереж потрібен дозвіл на визначення місцезнаходження.</string>
     <string name="records_found">Знайдено %1$d записів у %2$d базах даних</string>
     <string name="error_starting_app_update">Помилка запуску оновлення додатку: %s</string>
-    <string name="app_update_title">Оновлення WIFI Франкенштейн</string>
+    <string name="app_update_title">Оновлення SpectreFi</string>
     <string name="downloading_new_version">Завантаження нової версії додатку</string>
     <string name="install_new_version">Встановити нову версію</string>
     <string name="download_apk">Завантажити APK</string>
     <string name="version_check_old_install_message">Версія, яку ви встановлюєте, є застарілою.</string>
     <string name="unknown_sources_permission_title">Встановлення з невідомих джерел</string>
-    <string name="unknown_sources_permission_message">Для встановлення нової версії додатку WiFi Frankenstein потрібен дозвіл на встановлення додатків із невідомих джерел. Якщо ви відмовитеся, ви можете завантажити APK і встановити його вручну.</string>
+    <string name="unknown_sources_permission_message">Для встановлення нової версії додатку SpectreFi потрібен дозвіл на встановлення додатків із невідомих джерел. Якщо ви відмовитеся, ви можете завантажити APK і встановити його вручну.</string>
     <string name="install_manual_download_message">Дозвіл на встановлення не надано. Ви можете завантажити APK нової версії та встановити його вручну.</string>
     <string name="apk_downloaded_to_downloads">APK завантажено в папку «Завантаження».</string>
     <string name="no_pins_found">Пін-коди не знайдено</string>
@@ -299,7 +299,7 @@
     <string name="collapse">Згорнути</string>
     <string name="expand">Розгорнути</string>
     <string name="notification_image">Зображення сповіщення</string>
-    <string name="welcome_title">Ласкаво просимо до WiFi Франкенштейн</string>
+    <string name="welcome_title">Ласкаво просимо до SpectreFi</string>
     <string name="welcome_subtitle">Ваш універсальний інструмент для WiFi</string>
     <string name="welcome_agree_hint">Продовжуючи, ви погоджуєтесь з умовами</string>
     <string name="disclaimer_title">Відмова від відповідальності</string>
@@ -463,7 +463,7 @@
     <string name="password">Пароль</string>
     <string name="offline_algorithms_notice">Це застаріла версія генератора. Вона лише створює PIN-коди, але не може визначити, чи працює згенерований код. Щоб підібрати потенційно робочий PIN-код, скористайтеся новою версією генератора.</string>
     <string name="about_title">Про програму</string>
-    <string name="about_app_description">WIFI Frankenstein — додаток для пінтестингу ваших мереж Wi-Fi та роботи з базами даних Wi-Fi, відображення розташування точок Wi-Fi на карті та багато іншого. Це програма франкінштейн, яка містить різні функції для роботи з Wi-Fi.</string>
+    <string name="about_app_description">SpectreFi — набір інструментів для аудиту радіомереж, якими ви володієте або на тестування яких маєте явний дозвіл. Застосунок шукає точки доступу в базах Wi-Fi, показує їх на карті, аналізує завантаження каналів і завади, перехоплює та конвертує рукостискання WPA і перевіряє, наскільки стійкий ваш власний пароль.</string>
     <string name="about_app_replacement">Програма створена для заміни старої програми 3WiFi Locator.</string>
     <string name="about_app_author">Author: LowSkillDeveloper (Internet User у Telegram)</string>
     <string name="github_button">Відкрити на GitHub</string>
@@ -956,7 +956,7 @@
     <string name="auto_scan_interfaces">Автосканування інтерфейсів</string>
     <string name="extended_poll_interval">Збільшений інтервал опитування (30с)</string>
     <string name="logging_settings">Налаштування логування</string>
-    <string name="logging_info">Логи зберігаються в WIFI-Frankenstein/logs/</string>
+    <string name="logging_info">Логи зберігаються в SpectreFi/logs/</string>
     <string name="logging_session_warning">Логування активне лише для поточної сесії. Під час наступного запуску застосунку його потрібно буде ввімкнути знову.</string>
     <string name="delete_log_folder">Видалити папку з логами</string>
     <string name="share_last_log">Поділитися останнім логом</string>
@@ -996,7 +996,7 @@
     <string name="notification_channel_general">Загальні сповіщення</string>
     <string name="notification_channel_general_desc">Важливі сповіщення та новини</string>
     <string name="notification_app_update_title">Доступна нова версія</string>
-    <string name="notification_app_update_text">WiFi Frankenstein %1$s готовий до завантаження</string>
+    <string name="notification_app_update_text">SpectreFi %1$s готовий до завантаження</string>
     <string name="notification_db_update_title">Оновлення баз даних</string>
     <string name="notification_component_update_title">Оновлення компонентів</string>
     <string name="downloading_file_progress">%1$s (%2$d%%)</string>
@@ -2138,7 +2138,7 @@
     <string name="upl_server_error">Помилка сервера: %1$s</string>
     <string name="upl_http_error">Помилка HTTP: %1$d</string>
     <string name="ws_ssid_bssid_not_available">SSID/BSSID недоступний</string>
-    <string name="st_share_log_subject">Журнал WiFi Frankenstein</string>
+    <string name="st_share_log_subject">Журнал SpectreFi</string>
     <string name="st_share_log_chooser">Поділитися журналом</string>
     <string name="st_error_share_log">Помилка надсилання журналу</string>
     <string name="st_api_cache_cleared">Кеш API 3WiFi очищено</string>
@@ -2802,7 +2802,7 @@
     <string name="all_features_title">Усі функції</string>
     <string name="api_provider_3wifi">3WiFi</string>
     <string name="api_provider_wpasec">wpa-sec</string>
-    <string name="app_name">WIFI Frankenstein</string>
+    <string name="app_name">SpectreFi</string>
     <string name="attack_airodump">airodump-ng</string>
     <string name="attack_bottom_sheet_title">Параметри WiFi-атаки</string>
     <string name="attack_custom_pin">Власний PIN</string>
@@ -2898,7 +2898,7 @@
     <string name="db_card_api_server_title">3WiFi API сервер</string>
     <string name="db_url_hint_description">Використовуйте пряме посилання на файл .db/.sqlite або архів (.zip/.7z), що містить його. Для SmartLinkDB використовуйте пряме посилання на JSON-файл.</string>
     <string name="deauth_interface">Інтерфейс deauth</string>
-    <string name="default_upload_comment">WIFI-Frankenstein</string>
+    <string name="default_upload_comment">SpectreFi</string>
     <string name="details">Деталі</string>
     <string name="detecting_server">Визначення сервера:</string>
     <string name="diagnose_chroot">Діагностика Chroot</string>
@@ -3215,7 +3215,7 @@
     <string name="monero_tab">Monero</string>
     <string name="monitor_mode_warning">Режим монітора!</string>
     <string name="mount_chroot">Змонтувати Chroot</string>
-    <string name="nav_header_title">WIFI Frankenstein</string>
+    <string name="nav_header_title">SpectreFi</string>
     <string name="nav_header_title_with_version">%1$s %2$s</string>
     <string name="navigation_drawer_close">Закрити навігаційне меню</string>
     <string name="navigation_drawer_open">Відкрити навігаційне меню</string>
@@ -3689,7 +3689,7 @@
 
     <string name="eula_accept_checkbox">Підтверджую: тестуватиму лише мережі, якими володію або на тестування яких маю явний дозвіл; мені 18+; приймаю Відмову від відповідальності та Умови використання, включно з пунктом про бази даних спільноти</string>
     <string name="eula_dialog_title">Умови використання</string>
-    <string name="eula_dialog_text">WiFi Frankenstein призначена ЛИШЕ для аудиту Wi-Fi мереж, якими ви володієте або на тестування яких маєте явний дозвіл, а також в освітніх цілях.\n\n• Несанкціонований доступ до чужих мереж, отримання паролів без дозволу, деаутентифікація чужих з\'єднань і перехоплення комунікацій є кримінальними правопорушеннями в більшості юрисдикцій.\n\n• Усі бази точок доступу, доступні через застосунок (посилання SmartLinkDB, користувацькі SQLite, 3WiFi, wpa-sec), надаються ВИКЛЮЧНО ТРЕТІМИ ОСОБАМИ І СПІЛЬНОТОЮ. Автор не розміщує, не перевіряє й не схвалює їх і не несе відповідальності за їхній вміст.\n\n• Ви особисто відповідаєте за дотримання законів вашої країни. Натискаючи «Приймаю», ви приймаєте повний текст Відмови від відповідальності.</string>
+    <string name="eula_dialog_text">SpectreFi призначена ЛИШЕ для аудиту Wi-Fi мереж, якими ви володієте або на тестування яких маєте явний дозвіл, а також в освітніх цілях.\n\n• Несанкціонований доступ до чужих мереж, отримання паролів без дозволу, деаутентифікація чужих з\'єднань і перехоплення комунікацій є кримінальними правопорушеннями в більшості юрисдикцій.\n\n• Усі бази точок доступу, доступні через застосунок (посилання SmartLinkDB, користувацькі SQLite, 3WiFi, wpa-sec), надаються ВИКЛЮЧНО ТРЕТІМИ ОСОБАМИ І СПІЛЬНОТОЮ. Автор не розміщує, не перевіряє й не схвалює їх і не несе відповідальності за їхній вміст.\n\n• Ви особисто відповідаєте за дотримання законів вашої країни. Натискаючи «Приймаю», ви приймаєте повний текст Відмови від відповідальності.</string>
     <string name="eula_agree">Приймаю</string>
     <string name="eula_decline">Відхилити та вийти</string>
     <string name="smartlink_community_notice">Бази даних спільноти надаються третіми особами. Автор не розміщує, не перевіряє й не схвалює їх.</string>

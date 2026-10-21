@@ -1806,7 +1806,7 @@ class HandshakeStorageViewModel(application: Application) : AndroidViewModel(app
         val lines = hash22000.lines()
         for (line in lines) {
             val parsed = HandshakeHash.parse22000Line(line.trim()) ?: continue
-            if (parsed.type == HandshakeType.PMKID && parsed.verifyPassword(password)) {
+            if (parsed.verifyPassword(password) == true) {
                 return true
             }
         }

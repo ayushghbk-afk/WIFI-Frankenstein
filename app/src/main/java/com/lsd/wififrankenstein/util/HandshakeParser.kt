@@ -11,6 +11,27 @@ import javax.crypto.spec.SecretKeySpec
 
 enum class HandshakeType { PMKID, EAPOL, PMKID_EAPOL }
 
+/** Size of the EAPOL field inside a legacy .hccap record. */
+private const val MAX_HCCAP_EAPOL = 256
+
+/** Size of a single .hccapx record. */
+private const val HCCAPX_RECORD_SIZE = 393
+
+/** Offset of the key MIC inside an EAPOL-Key frame (4 byte header + 77 byte descriptor). */
+private const val EAPOL_MIC_OFFSET = 81
+
+/** Offset of the nonce field inside an EAPOL-Key frame. */
+private const val EAPOL_NONCE_OFFSET = 17
+
+private val PRF_LABEL = "Pairwise key expansion".toByteArray(Charsets.US_ASCII)
+
+private fun extractNonceBytes(eapol: ByteArray): ByteArray? =
+    if (eapol.size >= EAPOL_NONCE_OFFSET + 32) {
+        eapol.copyOfRange(EAPOL_NONCE_OFFSET, EAPOL_NONCE_OFFSET + 32)
+    } else {
+        null
+    }
+
 data class HandshakeHash(
     val type: HandshakeType,
     val pmkidOrMic: String,
@@ -116,7 +137,7 @@ data class HandshakeHash(
         macStaBytes.copyInto(buffer, 42)
         hexToBytes(snonceHex).copyInto(buffer, 48)
         hexToBytes(nonceApHex).copyInto(buffer, 80)
-        val eapolBytes = hexToBytes(eapolData)
+        val eapolBytes = hexToBytes(eapolData).copyOf(MAX_HCCAP_EAPOL)
         eapolBytes.copyInto(buffer, 112)
         val eapolSize = (eapolData.length / 2).coerceAtMost(256)
         buffer[368] = (eapolSize and 0xFF).toByte()
@@ -142,29 +163,108 @@ data class HandshakeHash(
             return first4 == "00006e00"
         }
 
-    fun verifyPassword(password: String): Boolean {
-        if (password.isBlank()) return false
-        if (type != HandshakeType.PMKID) return false
-        if (pmkidOrMic.length != 32) return false
+    /**
+     * Returns true when [password] is the passphrase of this handshake, false when it is not,
+     * and null when the hash cannot be verified from the data at hand (WPA3/AES-CMAC key
+     * descriptors, or an EAPOL pair that carries no supplicant nonce).
+     */
+    fun verifyPassword(password: String): Boolean? {
+        if (password.isBlank()) return null
         return try {
-            val essidBytes = essid.toByteArray(Charsets.UTF_8)
-            val spec: KeySpec = PBEKeySpec(password.toCharArray(), essidBytes, 4096, 256)
-            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1")
-            val pmk = factory.generateSecret(spec).encoded
-
-            val macApBytes = hexToBytes(macAp.replace(":", ""))
-            val macStaBytes = hexToBytes(macSta.replace(":", ""))
-            val data = "PMK Name".toByteArray() + macApBytes + macStaBytes
-
-            val hmac = Mac.getInstance("HmacSHA1")
-            hmac.init(SecretKeySpec(pmk, "HmacSHA1"))
-            val result = hmac.doFinal(data)
-            val expectedHex = bytesToHex(result.copyOf(16))
-            expectedHex.equals(pmkidOrMic, ignoreCase = true)
+            val pmk = derivePmk(password)
+            when (type) {
+                HandshakeType.PMKID -> verifyPmkid(pmk)
+                HandshakeType.EAPOL, HandshakeType.PMKID_EAPOL -> verifyEapolMic(pmk)
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "verifyPassword failed for ${essid}: ${e.message}")
-            false
+            Log.w(TAG, "verifyPassword failed for $essid: ${e.message}")
+            null
         }
+    }
+
+    private fun derivePmk(password: String): ByteArray {
+        val spec: KeySpec = PBEKeySpec(
+            password.toCharArray(),
+            essid.toByteArray(Charsets.UTF_8),
+            4096,
+            256
+        )
+        return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(spec).encoded
+    }
+
+    private fun verifyPmkid(pmk: ByteArray): Boolean? {
+        if (pmkidOrMic.length != 32) return null
+        val data = "PMK Name".toByteArray() +
+                hexToBytes(macAp.replace(":", "")) +
+                hexToBytes(macSta.replace(":", ""))
+        val hmac = Mac.getInstance("HmacSHA1")
+        hmac.init(SecretKeySpec(pmk, "HmacSHA1"))
+        val expected = bytesToHex(hmac.doFinal(data).copyOf(16))
+        return expected.equals(pmkidOrMic, ignoreCase = true)
+    }
+
+    private fun verifyEapolMic(pmk: ByteArray): Boolean? {
+        // Only the HMAC-SHA1 (CCMP/TKIP) key descriptor is implemented.
+        if ((keyver ?: 2) != 2) return null
+        if (pmkidOrMic.length != 32) return null
+
+        val eapolBytes = eapol?.let { hexToBytes(it) }
+            ?.takeIf { it.size >= EAPOL_MIC_OFFSET + 16 } ?: return null
+
+        val apNonce = anonce?.let { hexToBytes(it) }
+            ?.takeIf { it.size == 32 } ?: return null
+        val staNonce = snonce?.let { hexToBytes(it) }?.takeIf { it.size == 32 }
+            ?: extractNonceBytes(eapolBytes)?.takeIf { !it.contentEquals(apNonce) }
+            ?: return null
+
+        val ap = hexToBytes(macAp.replace(":", ""))
+        val sta = hexToBytes(macSta.replace(":", ""))
+        if (ap.size != 6 || sta.size != 6) return null
+
+        val ptk = prf512(pmk, orderedPair(ap, sta) + orderedPair(apNonce, staNonce))
+        val kck = ptk.copyOf(16)
+
+        val zeroed = eapolBytes.copyOf()
+        java.util.Arrays.fill(zeroed, EAPOL_MIC_OFFSET, EAPOL_MIC_OFFSET + 16, 0)
+
+        val hmac = Mac.getInstance("HmacSHA1")
+        hmac.init(SecretKeySpec(kck, "HmacSHA1"))
+        val expected = bytesToHex(hmac.doFinal(zeroed).copyOf(16))
+        return expected.equals(pmkidOrMic, ignoreCase = true)
+    }
+
+    /** PRF-512 from IEEE 802.11i (HMAC-SHA1). */
+    private fun prf512(key: ByteArray, data: ByteArray): ByteArray {
+        val hmac = Mac.getInstance("HmacSHA1")
+        hmac.init(SecretKeySpec(key, "HmacSHA1"))
+        val out = ByteArray(64)
+        var offset = 0
+        var counter = 0
+        while (offset < out.size) {
+            hmac.reset()
+            hmac.update(PRF_LABEL)
+            hmac.update(0.toByte())
+            hmac.update(data)
+            hmac.update(counter.toByte())
+            val block = hmac.doFinal()
+            val take = minOf(block.size, out.size - offset)
+            System.arraycopy(block, 0, out, offset, take)
+            offset += take
+            counter++
+        }
+        return out
+    }
+
+    /** Concatenates the two values in the ascending order the 802.11i PRF requires. */
+    private fun orderedPair(a: ByteArray, b: ByteArray): ByteArray =
+        if (compareBytes(a, b) <= 0) a + b else b + a
+
+    private fun compareBytes(a: ByteArray, b: ByteArray): Int {
+        for (index in 0 until minOf(a.size, b.size)) {
+            val diff = (a[index].toInt() and 0xFF) - (b[index].toInt() and 0xFF)
+            if (diff != 0) return diff
+        }
+        return a.size - b.size
     }
 
     fun dedupKey(): String {
@@ -199,8 +299,9 @@ data class HandshakeHash(
             }
 
             val type = when (typeCode) {
-                1, 3 -> HandshakeType.PMKID
+                1 -> HandshakeType.PMKID
                 2 -> HandshakeType.EAPOL
+                3 -> HandshakeType.PMKID_EAPOL
                 else -> return null
             }
 
@@ -267,8 +368,8 @@ data class HandshakeHash(
             }
 
             val messagePair = data[8].toInt() and 0xFF
-            val essidLen = data[9].toInt() and 0xFF
-            val essidHex = bytesToHex(data.copyOfRange(10, 10 + 32))
+            val essidLen = (data[9].toInt() and 0xFF).coerceIn(0, 32)
+            val essidHex = bytesToHex(data.copyOfRange(10, 10 + essidLen))
             val keyverVal = data[42].toInt() and 0xFF
             val keymic = bytesToHex(data.copyOfRange(43, 43 + 16))
             val macApHex = bytesToHex(data.copyOfRange(59, 59 + 6))
@@ -361,29 +462,34 @@ data class HandshakeHash(
             )
         }
 
+        /**
+         * Parses the text PMKID formats:
+         *  * hashcat -m 16800 / hcxtools .pmkid: `pmkid:mac_ap:mac_sta:essid`
+         *  * the historic asterisk variant:        `pmkid*mac_ap*mac_sta*essid`
+         * MAC addresses are written without separators, as both tools expect.
+         */
         fun parsePmkidText(line: String): HandshakeHash? {
             val trimmed = line.trim()
-            if (!trimmed.contains("*")) return null
-            val parts = trimmed.split("*")
-            if (parts.size < 3) {
-                Log.w(TAG, "parsePmkidText: too few fields (${parts.size}): ${trimmed.take(40)}")
+            if (trimmed.isEmpty() || trimmed.startsWith("WPA*")) return null
+
+            val separator = when {
+                trimmed.contains("*") -> '*'
+                trimmed.contains(":") -> ':'
+                else -> return null
+            }
+            val parts = trimmed.split(separator)
+            if (parts.size < 4) {
+                Log.d(TAG, "parsePmkidText: too few fields (${parts.size}): ${trimmed.take(40)}")
                 return null
             }
 
-            val pmkid =
-                if (parts.size >= 3 && parts[0].length == 32 && parts[0].all { it.isDigit() || it.lowercase() in "abcdef" }) {
-                    parts[0]
-                } else {
-                    val p = trimmed.split(":")
-                    if (p.size >= 4 && p[3].length == 32) p[3] else return null
-                }
+            val pmkid = parts[0].trim()
+            if (pmkid.length != 32 || !pmkid.isHexString()) {
+                Log.d(TAG, "parsePmkidText: not a 32 character hex PMKID: ${pmkid.take(40)}")
+                return null
+            }
 
-            val macApRaw = parts.getOrElse(1) { "" }
-            val macStaRaw = parts.getOrElse(2) { "" }
-            val essidHex = parts.getOrElse(3) { "" }
-
-            val macAp = formatMac(macApRaw)
-            val macSta = formatMac(macStaRaw)
+            val essidHex = parts[3].trim()
             val essid = try {
                 hexToAscii(essidHex)
             } catch (_: Exception) {
@@ -392,11 +498,12 @@ data class HandshakeHash(
 
             return HandshakeHash(
                 type = HandshakeType.PMKID,
-                pmkidOrMic = pmkid,
-                macAp = macAp,
-                macSta = macSta,
+                pmkidOrMic = pmkid.lowercase(),
+                macAp = formatMac(parts[1]),
+                macSta = formatMac(parts[2]),
                 essid = essid,
-                essidHex = essidHex
+                essidHex = essidHex,
+                originalLine = trimmed
             )
         }
 
@@ -408,6 +515,14 @@ data class HandshakeHash(
             return text.lines()
                 .mapNotNull { parseAny(it.trim()) }
                 .distinctBy { it.dedupKey() }
+        }
+
+        fun extractAllFromHccapx(data: ByteArray): List<HandshakeHash> {
+            if (data.size < HCCAPX_RECORD_SIZE) return emptyList()
+            val records = (0..(data.size - HCCAPX_RECORD_SIZE) step HCCAPX_RECORD_SIZE)
+            return records.mapNotNull { offset ->
+                parseHccapx(data.copyOfRange(offset, offset + HCCAPX_RECORD_SIZE))
+            }.distinctBy { it.dedupKey() }
         }
 
         fun extractAllFromHccap(data: ByteArray): List<HandshakeHash> {
@@ -425,7 +540,11 @@ data class HandshakeHash(
                 ); return HandshakeFormat.UNKNOWN
             }
             val bytes = try {
-                file.inputStream().use { it.readBytes().take(4).toByteArray() }
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(4)
+                    val read = input.read(buffer)
+                    if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "detectFileFormat: read error", e); return HandshakeFormat.UNKNOWN
             }
@@ -468,7 +587,11 @@ data class HandshakeHash(
 
                 else -> {
                     val text = try {
-                        file.readText(Charsets.ISO_8859_1).take(200)
+                        file.inputStream().use { input ->
+                            val buffer = ByteArray(200)
+                            val read = input.read(buffer)
+                            if (read <= 0) "" else String(buffer, 0, read, Charsets.ISO_8859_1)
+                        }
                     } catch (_: Exception) {
                         return HandshakeFormat.UNKNOWN
                     }
@@ -480,6 +603,11 @@ data class HandshakeHash(
 
                         text.contains("PMKID") && text.contains("*") -> {
                             Log.d(TAG, "detectFileFormat: PMKID text")
+                            HandshakeFormat.PMKID
+                        }
+
+                        PMKID_TEXT_PATTERN.containsMatchIn(text) -> {
+                            Log.d(TAG, "detectFileFormat: 16800/pmkid text")
                             HandshakeFormat.PMKID
                         }
 
@@ -529,17 +657,25 @@ private fun formatMac(mac: String): String {
 }
 
 private fun hexToBytes(hex: String): ByteArray {
-    val clean = hex.filter { it.isDigit() || it.lowercase() in "abcdef" }
-    return clean.chunked(2).mapNotNull {
-        try {
-            it.toInt(16).toByte()
-        } catch (_: Exception) {
-            null
-        }
-    }.toByteArray()
+    val clean = hex.trim()
+    if (clean.isEmpty()) return ByteArray(0)
+    if (clean.length % 2 != 0 || !clean.isHexString()) {
+        Log.w("HandshakeParser", "hexToBytes: refusing malformed hex (${clean.length} chars)")
+        return ByteArray(0)
+    }
+    return ByteArray(clean.length / 2) { index ->
+        clean.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+    }
 }
 
 private fun bytesToHex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+
+private fun String.isHexString(): Boolean =
+    isNotEmpty() && length % 2 == 0 && all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+
+/** pmkid + 12 hex chars (MAC_AP) + 12 hex chars (MAC_STA), in either separator style. */
+private val PMKID_TEXT_PATTERN =
+    Regex("[0-9a-fA-F]{32}[*:][0-9a-fA-F]{12}[*:][0-9a-fA-F]{12}[*:]")
 
 private fun hexToAscii(hex: String): String {
     val bytes = hex.chunked(2).mapNotNull {
@@ -585,9 +721,9 @@ object HandshakeParser {
                 try {
                     val data = file.readBytes()
                     Log.d(TAG, "  hccapx size: ${data.size}")
-                    val hash = HandshakeHash.parseHccapx(data)
-                    Log.d(TAG, "  hccapx parse ${if (hash != null) "OK" else "FAILED"}")
-                    listOfNotNull(hash)
+                    val hashes = HandshakeHash.extractAllFromHccapx(data)
+                    Log.d(TAG, "  parsed ${hashes.size} hashes from hccapx")
+                    hashes
                 } catch (e: Exception) {
                     Log.e(TAG, "  hccapx parse failed", e)
                     emptyList()

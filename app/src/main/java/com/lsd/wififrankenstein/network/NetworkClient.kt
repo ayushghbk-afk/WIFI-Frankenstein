@@ -5,20 +5,13 @@ import com.lsd.wififrankenstein.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
-import java.net.InetAddress
-import java.net.UnknownHostException
-import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 class NetworkClient(private val context: Context) {
 
@@ -34,55 +27,12 @@ class NetworkClient(private val context: Context) {
         }
     }
 
-    private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-    })
-
-    private val fallbackDns = object : Dns {
-        override fun lookup(hostname: String): List<InetAddress> {
-            try {
-                return Dns.SYSTEM.lookup(hostname)
-            } catch (e: UnknownHostException) {
-                return when (hostname) {
-                    "github.com" -> listOf(
-                        InetAddress.getByName("140.82.112.3"),
-                        InetAddress.getByName("140.82.112.4")
-                    )
-
-                    "raw.githubusercontent.com" -> listOf(
-                        InetAddress.getByName("185.199.108.133"),
-                        InetAddress.getByName("185.199.109.133")
-                    )
-
-                    else -> throw e
-                }
-            }
-        }
-    }
-
     private val okHttpClient by lazy(LazyThreadSafetyMode.NONE) {
-        try {
-            val sslContext = SSLContext.getInstance("TLS")
-            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-
-            OkHttpClient.Builder()
-                .dns(fallbackDns)
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-                .hostnameVerifier { _, _ -> true }
-                .retryOnConnectionFailure(true)
-                .build()
-        } catch (e: Exception) {
-            OkHttpClient.Builder()
-                .dns(fallbackDns)
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .retryOnConnectionFailure(true)
-                .build()
-        }
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
     }
 
     suspend fun get(url: String): String = withContext(Dispatchers.IO) {
@@ -90,13 +40,9 @@ class NetworkClient(private val context: Context) {
             throw NetworkException("No active network connection")
         }
 
-        val urlsToTry = if (url.contains("github.com")) {
-            listOf(
-                url,
-                url.replace("github.com", "raw.githubusercontent.com").replace("/raw/", "/")
-            )
-        } else {
-            listOf(url)
+        val urlsToTry = buildList {
+            add(url)
+            githubRawFallback(url)?.let { add(it) }
         }
 
         var lastException: Exception? = null
@@ -124,6 +70,17 @@ class NetworkClient(private val context: Context) {
         }
 
         throw NetworkException("Network request failed", lastException)
+    }
+
+    /**
+     * Fallback for GitHub's "raw" view, which is served as an HTML page with a redirect:
+     * https://github.com/<owner>/<repo>/raw/<ref>/<path> -> https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>
+     * Only https URLs are rewritten; the original URL is always tried first.
+     */
+    private fun githubRawFallback(url: String): String? {
+        val match = Regex("^https://github\\.com/([^/]+)/([^/]+)/raw/(.+)$").find(url) ?: return null
+        val (owner, repo, rest) = match.destructured
+        return "https://raw.githubusercontent.com/$owner/$repo/$rest"
     }
 
     suspend fun postMultipart(

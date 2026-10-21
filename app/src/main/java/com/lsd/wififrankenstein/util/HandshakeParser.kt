@@ -646,9 +646,10 @@ enum class HandshakeFormat {
 private val pcapMagic = byteArrayOf(0xa1.toByte(), 0xb2.toByte(), 0xc3.toByte(), 0xd4.toByte())
 private val pcapBigEndianMagic =
     byteArrayOf(0xd4.toByte(), 0xc3.toByte(), 0xb2.toByte(), 0xa1.toByte())
-private val pcapNanoMagic = byteArrayOf(0x4d.toByte(), 0x3c.toByte(), 0x2b.toByte(), 0x1a.toByte())
+private val pcapNanoMagic =
+    byteArrayOf(0xa1.toByte(), 0xb2.toByte(), 0x3c.toByte(), 0x4d.toByte())
 private val pcapNanoBigEndianMagic =
-    byteArrayOf(0x1a.toByte(), 0x2b.toByte(), 0x3c.toByte(), 0x4d.toByte())
+    byteArrayOf(0x4d.toByte(), 0x3c.toByte(), 0xb2.toByte(), 0xa1.toByte())
 private val pcapNgMagic = byteArrayOf(0x0a.toByte(), 0x0d.toByte(), 0x0d.toByte(), 0x0a.toByte())
 
 private fun formatMac(mac: String): String {

@@ -74,8 +74,8 @@ class PcapParser {
         private const val TAG = "PcapParser"
         private const val PCAP_MAGIC = 0xa1b2c3d4L
         private const val PCAP_MAGIC_SWAPPED = 0xd4c3b2a1L
-        private const val PCAP_MAGIC_NANO = 0x1a2b3c4dL
-        private const val PCAP_MAGIC_NANO_SWAPPED = 0x4d3c2b1aL
+        private const val PCAP_MAGIC_NANO = 0xa1b23c4dL
+        private const val PCAP_MAGIC_NANO_SWAPPED = 0x4d3cb2a1L
         private const val PCAPNG_MAGIC = 0x0a0d0d0aL
 
         private const val DLT_IEEE802_11 = 105
@@ -1296,26 +1296,29 @@ class PcapParser {
                     return bytesToHex(pmkidBytes)
                 }
             }
-            if (id == 0x30 && off + 2 + len <= data.size) {
+            if (id == TAG_RSN && off + 2 + len <= data.size) {
+                // RSN IE body: version(2) group cipher(4) pairwise count(2) pairwise(n*4)
+                //              akm count(2) akm(n*4) rsn capabilities(2) pmkid count(2) pmkid(n*16)
                 val rsn = data.copyOfRange(off + 2, off + 2 + len)
-                var rOff = 4
-                val gcip = rsn.copyOfRange(rOff, rOff + 4); rOff += 4
-                val pcs =
-                    ((rsn[rOff].toInt() and 0xFF) shl 8) or (rsn[rOff + 1].toInt() and 0xFF); rOff += 2
-                rOff += pcs * 4
-                if (rOff + 2 <= rsn.size) {
-                    val aks =
-                        ((rsn[rOff].toInt() and 0xFF) shl 8) or (rsn[rOff + 1].toInt() and 0xFF); rOff += 2
-                    rOff += aks * 4
-                    if (rOff + 4 <= rsn.size) {
-                        val pmkidId =
-                            ((rsn[rOff].toInt() and 0xFF) shl 8) or (rsn[rOff + 1].toInt() and 0xFF)
-                        val pmkidLen =
-                            ((rsn[rOff + 2].toInt() and 0xFF) shl 8) or (rsn[rOff + 3].toInt() and 0xFF)
-                        if (pmkidId == 1 && pmkidLen == 16 && rOff + 4 + 16 <= rsn.size) {
-                            val pmkidBytes = rsn.copyOfRange(rOff + 4, rOff + 4 + 16)
-                            if (pmkidBytes.all { it.toInt() == 0 }) return null
-                            return bytesToHex(pmkidBytes)
+                var rOff = 2
+                if (rsn.size >= rOff + 4) {
+                    rOff += 4 // group cipher suite
+                    val pcs = readU16(rsn, rOff)
+                    rOff += 2
+                    if (pcs != null && rOff + pcs * 4 <= rsn.size) {
+                        rOff += pcs * 4
+                        val aks = readU16(rsn, rOff)
+                        rOff += 2
+                        if (aks != null && rOff + aks * 4 + 2 <= rsn.size) {
+                            rOff += aks * 4
+                            rOff += 2 // RSN capabilities
+                            val pmkidCount = readU16(rsn, rOff)
+                            rOff += 2
+                            if (pmkidCount != null && pmkidCount > 0 && rOff + 16 <= rsn.size) {
+                                val pmkidBytes = rsn.copyOfRange(rOff, rOff + 16)
+                                if (pmkidBytes.all { it.toInt() == 0 }) return null
+                                return bytesToHex(pmkidBytes)
+                            }
                         }
                     }
                 }
@@ -1361,11 +1364,19 @@ class PcapParser {
         return Triple(flags, channel, rssi)
     }
 
+    private fun readU16(data: ByteArray, offset: Int): Int? {
+        if (offset < 0 || offset + 2 > data.size) return null
+        return ((data[offset].toInt() and 0xFF) shl 8) or (data[offset + 1].toInt() and 0xFF)
+    }
+
     private fun freqToChannel(freq: Int): Int {
         return when {
-            freq >= 5975 -> (freq - 5975) / 5 + 1
-            freq >= 5000 -> (freq - 5000) / 5 + 7
-            freq >= 2412 -> (freq - 2412) / 5 + 1
+            freq == 2484 -> 14
+            freq in 2412..2472 -> (freq - 2412) / 5 + 1
+            // 6 GHz channels are 20 MHz apart and numbered 1, 5, 9, ... (step of 4)
+            freq in 5955..7125 -> 1 + 4 * ((freq - 5955) / 20)
+            // 5 GHz channel numbers are (frequency - 5000) / 5
+            freq in 5000..5899 -> (freq - 5000) / 5
             else -> 0
         }
     }

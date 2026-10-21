@@ -8,7 +8,7 @@
     android:paddingTop="3dp"
     android:paddingBottom="3dp">
 
-    <com.lsd.wififrankenstein.ui.wifimap.LegendSwatchView
+    <com.spectrefi.app.ui.wifimap.LegendSwatchView
         android:id="@+id/legendSwatch"
         android:layout_width="36dp"
         android:layout_height="36dp"

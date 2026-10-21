@@ -48,7 +48,7 @@
             app:backgroundTint="?attr/colorPrimary"
             app:tint="?attr/colorOnPrimary" />
 
-        <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+        <com.spectrefi.app.util.AnimatedLoadingBar
             android:id="@+id/loadingIndicator"
             android:layout_width="match_parent"
             android:layout_height="6dp"

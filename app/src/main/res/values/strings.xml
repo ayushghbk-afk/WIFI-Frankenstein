@@ -1,10 +1,10 @@
 <resources>
-    <string name="app_name" translatable="false">WIFI Frankenstein</string>
+    <string name="app_name" translatable="false">SpectreFi</string>
     <string name="nav_header_title_with_version" translatable="false">%1$s %2$s</string>
-    <string name="default_upload_comment" translatable="false">WIFI-Frankenstein</string>
+    <string name="default_upload_comment" translatable="false">SpectreFi</string>
     <string name="include_app_identifier">Include App Identifier</string>
     <string name="app_identifier_description">Send app identifier with requests</string>
-    <string name="nav_header_title" translatable="false">WIFI Frankenstein</string>
+    <string name="nav_header_title" translatable="false">SpectreFi</string>
     <string name="nav_header_desc">Navigation header</string>
     <string name="db_type_sqlite_3wifi">SQLite file (3WiFi type)</string>
     <string name="db_type_sqlite_custom">SQLite file (Custom)</string>
@@ -72,13 +72,13 @@
     <string name="location_permission_required">Location permission is required to scan WiFi networks.</string>
     <string name="records_found">%1$d records found in %2$d db</string>
     <string name="error_starting_app_update">Error starting app update: %s</string>
-    <string name="app_update_title">WIFI Frankenstein Update</string>
+    <string name="app_update_title">SpectreFi Update</string>
     <string name="downloading_new_version">Downloading new version of the app</string>
     <string name="install_new_version">Install New Version</string>
     <string name="download_apk">Download APK</string>
     <string name="version_check_old_install_message">The version you are installing is outdated.</string>
     <string name="unknown_sources_permission_title">Install unknown apps</string>
-    <string name="unknown_sources_permission_message">To install the new version, WiFi Frankenstein needs permission to install apps from unknown sources. If you decline, you can download the APK and install it manually.</string>
+    <string name="unknown_sources_permission_message">To install the new version, SpectreFi needs permission to install apps from unknown sources. If you decline, you can download the APK and install it manually.</string>
     <string name="install_manual_download_message">Install permission was not granted. You can download the APK of the new version and install it manually.</string>
     <string name="apk_downloaded_to_downloads">APK downloaded to the Downloads folder.</string>
     <string name="no_pins_found">No pins found</string>
@@ -146,7 +146,6 @@
     <string name="read_timeout_info">Read timeout in milliseconds.</string>
     <string name="cache_results_info">Enable caching of results to reduce server load and speed up repeated requests.</string>
     <string name="try_alternative_url_info">Try sending request to 3wifi.php?a=apiquery if the request to api/apiquery fails.</string>
-    <string name="ignore_ssl_certificate_info">Ignore SSL Certificate info</string>
     <string name="api_3wifi_settings">API 3WiFi Settings</string>
     <string name="max_points_per_request">Max points per request</string>
     <string name="request_delay_ms">Request delay (ms)</string>
@@ -158,7 +157,6 @@
     <string name="try_alternative_url">Try alternative URL</string>
     <string name="clear_api_cache">Clear API Cache</string>
     <string name="save_api_settings">Save API Settings</string>
-    <string name="ignore_ssl_certificate">Ignore SSL Certificate</string>
     <string name="reset_to_default">Reset to Default</string>
     <string name="developer_settings">Developer Settings</string>
     <string name="dummy_network_mode">Dummy Networks Mode</string>
@@ -340,7 +338,7 @@
     <string name="collapse">Collapse</string>
     <string name="expand">Expand</string>
     <string name="notification_image">Notification image</string>
-    <string name="welcome_title">Welcome to WiFi Frankenstein</string>
+    <string name="welcome_title">Welcome to SpectreFi</string>
     <string name="welcome_subtitle">Your all-in-one WiFi security toolkit</string>
     <string name="welcome_agree_hint">By continuing, you agree to the terms</string>
     <string name="disclaimer_title">Disclaimer</string>
@@ -509,7 +507,7 @@
     <string name="password">Password</string>
     <string name="offline_algorithms_notice">This is an outdated version of the generator. It only creates PIN codes but cannot determine whether a generated code works. To find a potentially working PIN code, please use the new version of the generator.</string>
     <string name="about_title">About the application</string>
-    <string name="about_app_description">WIFI Frankenstein is an application for pintesting your wifi networks and working with wifi databases, displaying the location of wifi points on the map and much more. This is a Frankenstein application, which contains various functionality for working with wifi.</string>
+    <string name="about_app_description">SpectreFi is an RF audit toolkit for the wireless networks you own or are explicitly authorised to test. It looks up access points in Wi-Fi databases, plots them on the map, analyses channel usage and interference, captures and converts WPA handshakes, and checks how resilient your own passphrase is.</string>
     <string name="about_app_replacement">The application was created to replace the old 3WiFi Locator application.</string>
     <string name="about_app_author">Author: LowSkillDeveloper (Internet User in Telegram)</string>
     <string name="github_button">Open on GitHub</string>
@@ -527,6 +525,7 @@
     <string name="wifi_key">WiFi key:</string>
     <string name="security">Security:</string>
     <string name="coordinates">Coordinates:</string>
+    <string name="distance_meters">%1$.2f m</string>
     <string name="unknown">Unknown</string>
     <string name="copy_key">Copy key</string>
     <string name="open_map">Open map</string>
@@ -780,7 +779,7 @@
     <string name="upload_all_with_passwords">Upload all with passwords to 3WiFi</string>
     <string name="upload_cracked_to_3wifi">Upload password to 3WiFi</string>
     <string name="support_state_supported">Supported</string>
-    <string name="support_state_unlikely">Unlikely</string>
+    <string name="support_state_likely">Likely</string>
     <string name="support_state_unsupported">Unsupported</string>
     <string name="error_no_internet">No internet connection available</string>
     <string name="error_connection_failed">Connection failed. Please try again later.</string>
@@ -1029,6 +1028,7 @@
     <string name="download_notification_channel_description">Notifications for file download progress</string>
     <string name="downloading_file">Downloading file</string>
     <string name="download_error_unknown">Unknown download error</string>
+    <string name="download_error_checksum">Checksum verification failed</string>
     <string name="download_complete">Download Complete</string>
     <string name="file_downloaded_successfully">%s downloaded successfully</string>
     <string name="notification_permission_title">Notification Permission Required</string>
@@ -1138,7 +1138,7 @@
     <string name="auto_scan_interfaces">Auto-scan interfaces</string>
     <string name="extended_poll_interval">Extended poll interval (30s)</string>
     <string name="logging_settings">Logging settings</string>
-    <string name="logging_info">Logs are saved in WIFI-Frankenstein/logs/</string>
+    <string name="logging_info">Logs are saved in SpectreFi/logs/</string>
     <string name="logging_session_warning">Logging is active only for the current session. You will need to enable it again the next time the app is launched.</string>
     <string name="delete_log_folder">Delete log folder</string>
     <string name="share_last_log">Share last log</string>
@@ -1178,7 +1178,7 @@
     <string name="notification_channel_general">General Notifications</string>
     <string name="notification_channel_general_desc">Important notifications and news</string>
     <string name="notification_app_update_title">New Version Available</string>
-    <string name="notification_app_update_text">WiFi Frankenstein %1$s is ready for download</string>
+    <string name="notification_app_update_text">SpectreFi %1$s is ready for download</string>
     <string name="notification_db_update_title">Database Updates</string>
     <string name="notification_component_update_title">Component Updates</string>
     <string name="downloading_file_progress">%1$s (%2$d%%)</string>
@@ -2879,7 +2879,7 @@
     <string name="upl_server_error">Server error: %1$s</string>
     <string name="upl_http_error">HTTP error: %1$d</string>
     <string name="ws_ssid_bssid_not_available">SSID/BSSID not available</string>
-    <string name="st_share_log_subject">WiFi Frankenstein Log</string>
+    <string name="st_share_log_subject">SpectreFi Log</string>
     <string name="st_share_log_chooser">Share log file</string>
     <string name="st_error_share_log">Error sharing log file</string>
     <string name="st_api_cache_cleared">API 3WiFi cache cleared</string>
@@ -3837,7 +3837,7 @@
 
     <string name="eula_accept_checkbox">I confirm that I will only test networks I own or am explicitly authorized to test. I am 18 years or older and that I accept the Disclaimer and Terms of Use, including the community databases clause</string>
     <string name="eula_dialog_title">Terms &amp; Conditions</string>
-    <string name="eula_dialog_text">WiFi Frankenstein is intended ONLY for auditing Wi-Fi networks you own or are explicitly authorized to test and for educational purposes.\n\n• Unauthorized access to third-party networks, obtaining credentials without permission, deauthentication/disruption of third-party connections and interception of communications are criminal offences in most jurisdictions \n\n• All access-point databases available via this app (SmartLinkDB links, user-supplied SQLite files, 3WiFi, wpa-sec) are provided ENTIRELY BY THIRD PARTIES AND THE COMMUNITY. The author does not host, verify or endorse them and bears no responsibility for their content.\n\n• You alone are responsible for compliance with your local law. By tapping \"I Agree\" you accept the full Disclaimer.</string>
+    <string name="eula_dialog_text">SpectreFi is intended ONLY for auditing Wi-Fi networks you own or are explicitly authorized to test and for educational purposes.\n\n• Unauthorized access to third-party networks, obtaining credentials without permission, deauthentication/disruption of third-party connections and interception of communications are criminal offences in most jurisdictions \n\n• All access-point databases available via this app (SmartLinkDB links, user-supplied SQLite files, 3WiFi, wpa-sec) are provided ENTIRELY BY THIRD PARTIES AND THE COMMUNITY. The author does not host, verify or endorse them and bears no responsibility for their content.\n\n• You alone are responsible for compliance with your local law. By tapping \"I Agree\" you accept the full Disclaimer.</string>
     <string name="eula_agree">I Agree</string>
     <string name="eula_decline">Decline and exit</string>
     <string name="smartlink_community_notice">Community databases are provided by third parties. The author does not host, verify or endorse them.</string>

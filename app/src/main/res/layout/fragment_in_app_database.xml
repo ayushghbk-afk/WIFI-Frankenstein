@@ -138,7 +138,7 @@
         </com.google.android.material.appbar.CollapsingToolbarLayout>
     </com.google.android.material.appbar.AppBarLayout>
 
-    <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+    <com.spectrefi.app.util.AnimatedLoadingBar
         android:id="@+id/progressBarDatabaseCheck"
         android:layout_width="match_parent"
         android:layout_height="4dp"

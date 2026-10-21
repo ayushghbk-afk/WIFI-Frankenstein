@@ -933,12 +933,6 @@
                         android:layout_marginTop="8dp"
                         android:text="@string/use_post_method" />
 
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switchIgnoreSSLCertificate"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/ignore_ssl_certificate" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switchIncludeAppIdentifier"

@@ -11,7 +11,7 @@ plugins {
 }
 
 android {
-    namespace = "com.lsd.wififrankenstein"
+    namespace = "com.spectrefi.app"
     compileSdk = 37
 
     packaging {
@@ -22,7 +22,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.lsd.wififrankenstein"
+        applicationId = "com.spectrefi.app"
         minSdk = 21
         targetSdk = 37
         versionCode = 9

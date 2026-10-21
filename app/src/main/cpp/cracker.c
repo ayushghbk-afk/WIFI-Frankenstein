@@ -692,7 +692,7 @@ static int verify_pmkid(const uint8_t pmk[32], const uint8_t apMac[6],
 #include <time.h>
 
 JNIEXPORT jlong JNICALL
-Java_com_lsd_wififrankenstein_util_NativeCracker_benchmarkPbkdf2(
+Java_com_spectrefi_app_util_NativeCracker_benchmarkPbkdf2(
         JNIEnv *env, jclass cls, jint iterations) {
 
     const uint8_t *password = (const uint8_t *) "TestPassword12345678";
@@ -712,11 +712,11 @@ Java_com_lsd_wififrankenstein_util_NativeCracker_benchmarkPbkdf2(
 }
 
 
-#define JNI_CLASS "com/lsd/wififrankenstein/util/NativeCracker"
+#define JNI_CLASS "com/spectrefi/app/util/NativeCracker"
 
 
 JNIEXPORT jstring JNICALL
-Java_com_lsd_wififrankenstein_util_NativeCracker_debugPbkdf2Hex(
+Java_com_spectrefi_app_util_NativeCracker_debugPbkdf2Hex(
         JNIEnv *env, jclass cls,
         jstring jPassword, jstring jSsid) {
 
@@ -752,7 +752,7 @@ Java_com_lsd_wififrankenstein_util_NativeCracker_debugPbkdf2Hex(
 
 
 JNIEXPORT jboolean JNICALL
-Java_com_lsd_wififrankenstein_util_NativeCracker_tryPasswordHex(
+Java_com_spectrefi_app_util_NativeCracker_tryPasswordHex(
         JNIEnv *env, jclass cls,
         jstring jPassword, jstring jSsid,
         jstring jMacApHex, jstring jMacStaHex,
@@ -848,7 +848,7 @@ Java_com_lsd_wififrankenstein_util_NativeCracker_tryPasswordHex(
 
 
 JNIEXPORT jint JNICALL
-Java_com_lsd_wififrankenstein_util_NativeCracker_crackBatchHex(
+Java_com_spectrefi_app_util_NativeCracker_crackBatchHex(
         JNIEnv *env, jclass cls,
         jobjectArray jPasswords, jstring jSsid,
         jstring jMacApHex, jstring jMacStaHex,
@@ -966,7 +966,7 @@ typedef struct {
 } nh_target;
 
 JNIEXPORT jint JNICALL
-Java_com_lsd_wififrankenstein_util_NativeCracker_crackBatchMultiHex(
+Java_com_spectrefi_app_util_NativeCracker_crackBatchMultiHex(
         JNIEnv *env, jclass cls,
         jobjectArray jPasswords, jstring jSsid,
         jobjectArray jApArr, jobjectArray jStaArr,

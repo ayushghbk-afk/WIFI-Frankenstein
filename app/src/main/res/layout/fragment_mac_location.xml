@@ -225,7 +225,7 @@
                 android:layout_marginBottom="16dp"
                 android:orientation="vertical" />
 
-            <com.lsd.wififrankenstein.ui.ipranges.CustomMapView
+            <com.spectrefi.app.ui.ipranges.CustomMapView
                 android:id="@+id/map"
                 android:layout_width="match_parent"
                 android:layout_height="300dp"
@@ -271,7 +271,7 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <com.lsd.wififrankenstein.util.AnimatedLoadingBar
+    <com.spectrefi.app.util.AnimatedLoadingBar
         android:id="@+id/progressIndicator"
         android:layout_width="match_parent"
         android:layout_height="5dp"

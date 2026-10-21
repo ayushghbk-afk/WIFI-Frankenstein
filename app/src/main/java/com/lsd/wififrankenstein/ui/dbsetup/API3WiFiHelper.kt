@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.core.content.edit
 import com.lsd.wififrankenstein.util.Log
 import com.lsd.wififrankenstein.util.SignatureVerifier
-import com.lsd.wififrankenstein.util.SslHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -89,7 +88,6 @@ class API3WiFiHelper(
             try {
                 val testUrl = "$serverUrl/fmap?tiles=0,0,1,1&zoom=1"
                 val connection = URL(testUrl).openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = connectTimeout
                 connection.readTimeout = readTimeout
@@ -116,7 +114,6 @@ class API3WiFiHelper(
             val params = java.net.URLEncoder.encode("""{"json":{}}""", "UTF-8")
             val testUrl = "$serverUrl/trpc/getAppVersion?input=$params"
             val connection = URL(testUrl).openConnection() as HttpURLConnection
-            SslHelper.configure(connection)
             connection.requestMethod = "GET"
             connection.connectTimeout = connectTimeout
             connection.readTimeout = readTimeout
@@ -243,7 +240,6 @@ class API3WiFiHelper(
             val startTime = System.currentTimeMillis()
             try {
                 val connection = url.openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "HEAD"
                 connection.connectTimeout = connectTimeout
                 connection.readTimeout = readTimeout
@@ -294,7 +290,6 @@ class API3WiFiHelper(
     ): Pair<Boolean, String> {
         return withContext(Dispatchers.IO) {
             val connection = URL(url).openConnection() as HttpURLConnection
-            SslHelper.configure(connection)
             try {
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
@@ -347,7 +342,6 @@ class API3WiFiHelper(
         for (url in urls) {
             try {
                 val connection = URL(url).openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.doOutput = true

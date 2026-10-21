@@ -26,7 +26,6 @@ import com.lsd.wififrankenstein.ui.dbsetup.localappdb.LocalAppDbHelper
 import com.lsd.wififrankenstein.ui.settings.SettingsViewModel
 import com.lsd.wififrankenstein.util.DatabaseTypeUtils
 import com.lsd.wififrankenstein.util.Log
-import com.lsd.wififrankenstein.util.SslHelper
 import com.lsd.wififrankenstein.util.WpsPinGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -818,7 +817,6 @@ class WpsGeneratorActivity : AppCompatActivity() {
                     }
 
                     connection = url.openConnection() as HttpURLConnection
-                    SslHelper.configure(connection)
                     connection.apply {
                         if (usePostMethod) {
                             requestMethod = "POST"

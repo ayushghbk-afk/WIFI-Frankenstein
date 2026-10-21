@@ -1,6 +1,5 @@
 package com.lsd.wififrankenstein.ui.dbsetup
 
-import com.lsd.wififrankenstein.util.SslHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -20,7 +19,6 @@ object ApiServerHelper {
         try {
             val url = URL("$serverUrl/api/apikeys")
             val connection = url.openConnection() as HttpURLConnection
-            SslHelper.configure(connection)
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")

@@ -12,7 +12,6 @@ import com.lsd.wififrankenstein.ui.dbsetup.ApiServerHelper
 import com.lsd.wififrankenstein.ui.dbsetup.AuthMethod
 import com.lsd.wififrankenstein.ui.dbsetup.DbItem
 import com.lsd.wififrankenstein.ui.dbsetup.DbSetupViewModel
-import com.lsd.wififrankenstein.util.SslHelper
 import com.lsd.wififrankenstein.util.ThreeWiFiCsvRow
 import com.lsd.wififrankenstein.util.ThreeWiFiUploader
 import kotlinx.coroutines.Dispatchers
@@ -258,7 +257,6 @@ class UploadRouterScanViewModel(application: Application) : AndroidViewModel(app
         }
 
         val connection = URL(url).openConnection() as HttpURLConnection
-        SslHelper.configure(connection)
         connection.requestMethod = "POST"
         connection.setRequestProperty("Content-Type", mimeType)
         connection.doOutput = true

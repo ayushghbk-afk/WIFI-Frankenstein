@@ -25,7 +25,6 @@ import com.lsd.wififrankenstein.ui.dbsetup.DbType
 import com.lsd.wififrankenstein.ui.dbsetup.localappdb.LocalAppDbHelper
 import com.lsd.wififrankenstein.util.MacAddressUtils
 import com.lsd.wififrankenstein.util.PixiePinProvider
-import com.lsd.wififrankenstein.util.SslHelper
 import com.lsd.wififrankenstein.util.WpsPinGenerator
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -674,7 +673,6 @@ class WpsGeneratorFragment : Fragment() {
                     val url =
                         URL("${db.path}/api/apiwps?key=${db.apiKey}&bssid=${bssid.uppercase()}")
                     val connection = url.openConnection() as HttpURLConnection
-                    SslHelper.configure(connection)
                     connection.requestMethod = "GET"
                     connection.connectTimeout = 5000
                     connection.readTimeout = 10000

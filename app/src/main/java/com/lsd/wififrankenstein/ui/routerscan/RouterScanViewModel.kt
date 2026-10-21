@@ -24,7 +24,6 @@ import com.lsd.wififrankenstein.util.Log
 import com.lsd.wififrankenstein.util.RootlessManager
 import com.lsd.wififrankenstein.util.RouterScanRunner
 import com.lsd.wififrankenstein.util.RuntimeType
-import com.lsd.wififrankenstein.util.SslHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -501,7 +500,6 @@ class RouterScanViewModel(application: Application) : AndroidViewModel(applicati
 
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
-            SslHelper.configure(connection)
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "text/csv")
             connection.doOutput = true

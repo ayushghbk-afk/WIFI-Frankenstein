@@ -42,7 +42,6 @@ import com.lsd.wififrankenstein.ui.dbsetup.localappdb.LocalAppDbHelper
 import com.lsd.wififrankenstein.ui.dbsetup.localappdb.WifiNetwork
 import com.lsd.wififrankenstein.ui.welcome.DatabaseSelectAdapter
 import com.lsd.wififrankenstein.util.Log
-import com.lsd.wififrankenstein.util.SslHelper
 import com.opencsv.CSVReader
 import com.opencsv.CSVWriter
 import kotlinx.coroutines.Dispatchers
@@ -1790,7 +1789,6 @@ class DbSetupFragment : Fragment() {
             try {
                 val testUrl = "$url/fmap?tiles=0,0,1,1&zoom=1"
                 val connection = URL(testUrl).openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 5000
                 connection.readTimeout = 10000

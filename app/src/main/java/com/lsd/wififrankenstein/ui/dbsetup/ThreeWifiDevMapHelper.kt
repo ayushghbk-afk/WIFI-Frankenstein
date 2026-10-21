@@ -2,7 +2,6 @@ package com.lsd.wififrankenstein.ui.dbsetup
 
 import android.content.Context
 import com.lsd.wififrankenstein.util.Log
-import com.lsd.wififrankenstein.util.SslHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -34,7 +33,6 @@ class ThreeWifiDevMapHelper(
             try {
                 val testUrl = "$normalizedUrl/fmap?tiles=0,0,1,1&zoom=1"
                 val connection = URL(testUrl).openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 5000
                 connection.readTimeout = 10000
@@ -64,7 +62,6 @@ class ThreeWifiDevMapHelper(
                 Log.d(TAG, "Fetching map data from: $url")
 
                 val connection = URL(url).openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 15000
@@ -153,7 +150,6 @@ class ThreeWifiDevMapHelper(
 
                 val url = "$normalizedUrl/api/apiquery"
                 val connection = URL(url).openConnection() as HttpURLConnection
-                SslHelper.configure(connection)
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.doOutput = true

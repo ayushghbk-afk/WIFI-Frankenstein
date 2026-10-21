@@ -86,7 +86,6 @@ object ThreeWiFiUploader {
 
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
-            SslHelper.configure(connection)
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "text/csv")
             connection.doOutput = true

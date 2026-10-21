@@ -752,7 +752,7 @@ class MacLocationViewModel(application: Application) : AndroidViewModel(applicat
                 </ya_lbs_request>
             """.trimIndent()
 
-                val url = URL("http://api.lbs.yandex.net/geolocation")
+                val url = URL("https://api.lbs.yandex.net/geolocation")
 
                 val connection = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10000
@@ -854,7 +854,7 @@ class MacLocationViewModel(application: Application) : AndroidViewModel(applicat
 
                 val cleanMac = macAddress.replace(":", "").replace("-", "")
                 val url =
-                    URL("http://mobile.maps.yandex.net/cellid_location/?clid=1866854&lac=-1&cellid=-1&operatorid=null&countrycode=null&signalstrength=-1&wifinetworks=$cleanMac:0&app")
+                    URL("https://mobile.maps.yandex.net/cellid_location/?clid=1866854&lac=-1&cellid=-1&operatorid=null&countrycode=null&signalstrength=-1&wifinetworks=$cleanMac:0&app")
 
                 val connection = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10000

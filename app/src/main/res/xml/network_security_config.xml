@@ -1,5 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext stays permitted at the base level because the app legitimately
+    needs it in three places: user-configured self-hosted API/database mirrors,
+    the local bettercap daemon, and the DPI/transparent-proxy checks that send
+    plain HTTP on purpose.
+
+    The hosts below are the ones that carry credentials or updates and are
+    always called over TLS by the app itself. They are pinned to https so a
+    downgrade or an http redirect against them fails loudly instead of
+    transferring an API key or an update payload in the clear.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
-</network-security-config>
 
+    <domain-config cleartextTrafficPermitted="false">
+        <!-- update channel -->
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">githubassets.com</domain>
+
+        <!-- services that receive credentials or network data -->
+        <domain includeSubdomains="true">stanev.org</domain>
+        <domain includeSubdomains="true">wigle.net</domain>
+        <domain includeSubdomains="true">mylnikov.org</domain>
+        <domain includeSubdomains="true">wpsfinder.com</domain>
+        <domain includeSubdomains="true">wifidb.net</domain>
+        <domain includeSubdomains="true">onlinehashcrack.com</domain>
+        <domain includeSubdomains="true">pwncrack.org</domain>
+
+        <!-- location resolvers receive the MAC addresses being looked up -->
+        <domain includeSubdomains="true">yandex.net</domain>
+
+        <!-- regional internet registries (RDAP) -->
+        <domain includeSubdomains="true">ripe.net</domain>
+        <domain includeSubdomains="true">apnic.net</domain>
+        <domain includeSubdomains="true">arin.net</domain>
+        <domain includeSubdomains="true">afrinic.net</domain>
+        <domain includeSubdomains="true">lacnic.net</domain>
+    </domain-config>
+</network-security-config>

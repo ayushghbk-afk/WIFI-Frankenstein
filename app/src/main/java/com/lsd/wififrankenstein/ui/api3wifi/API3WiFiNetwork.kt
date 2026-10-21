@@ -23,7 +23,6 @@ class API3WiFiNetwork(
     private val serverUrl: String,
     private val connectTimeout: Int,
     private val readTimeout: Int,
-    private val ignoreSSL: Boolean,
     private val includeAppIdentifier: Boolean,
     private val apiReadKey: String = "000000000000",
     private val apiWriteKey: String? = null
@@ -35,29 +34,6 @@ class API3WiFiNetwork(
             .connectTimeout(connectTimeout.toLong(), TimeUnit.MILLISECONDS)
             .readTimeout(readTimeout.toLong(), TimeUnit.MILLISECONDS)
 
-        if (ignoreSSL) {
-            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-                override fun checkClientTrusted(
-                    chain: Array<out java.security.cert.X509Certificate>,
-                    authType: String
-                ) {
-                }
-
-                override fun checkServerTrusted(
-                    chain: Array<out java.security.cert.X509Certificate>,
-                    authType: String
-                ) {
-                }
-
-                override fun getAcceptedIssuers() = arrayOf<java.security.cert.X509Certificate>()
-            })
-
-            val sslContext = SSLContext.getInstance("SSL")
-            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-
-            builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-            builder.hostnameVerifier { _, _ -> true }
-        }
 
         return builder.build()
     }

@@ -99,9 +99,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _tryAlternativeUrl = MutableLiveData<Boolean>()
     val tryAlternativeUrl: LiveData<Boolean> = _tryAlternativeUrl
 
-    private val _ignoreSSLCertificate = MutableLiveData<Boolean>()
-    val ignoreSSLCertificate: LiveData<Boolean> = _ignoreSSLCertificate
-
     private val _dummyNetworkMode = MutableLiveData<Boolean>()
     val dummyNetworkMode: LiveData<Boolean> = _dummyNetworkMode
 
@@ -150,7 +147,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _readTimeout.value = api3WiFiPrefs.getInt("readTimeout", 10000)
         _cacheResults.value = api3WiFiPrefs.getBoolean("cacheResults", true)
         _tryAlternativeUrl.value = api3WiFiPrefs.getBoolean("tryAlternativeUrl", true)
-        _ignoreSSLCertificate.value = api3WiFiPrefs.getBoolean("ignoreSSLCertificate", false)
         _includeAppIdentifier.value = api3WiFiPrefs.getBoolean("includeAppIdentifier", true)
         _showWipFeatures.value = prefs.getBoolean("show_wip_features", false)
         _enableLogging.value = FileLogger.isLoggingEnabled()
@@ -430,15 +426,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _tryAlternativeUrl.value = value
     }
 
-    fun getIgnoreSSLCertificate() = _ignoreSSLCertificate.value == true
-
     @SuppressLint("UseKtx")
-    fun setIgnoreSSLCertificate(value: Boolean) {
-        api3WiFiPrefs.edit { putBoolean("ignoreSSLCertificate", value) }
-        _ignoreSSLCertificate.value = value
-        com.lsd.wififrankenstein.network.ThreeWifiAppClient.invalidate()
-    }
-
     fun clearAPI3WiFiCache() {
         api3WiFiHelper.clearCache()
     }

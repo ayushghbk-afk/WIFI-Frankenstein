@@ -146,7 +146,6 @@
     <string name="read_timeout_info">Read timeout in milliseconds.</string>
     <string name="cache_results_info">Enable caching of results to reduce server load and speed up repeated requests.</string>
     <string name="try_alternative_url_info">Try sending request to 3wifi.php?a=apiquery if the request to api/apiquery fails.</string>
-    <string name="ignore_ssl_certificate_info">Ignore SSL Certificate info</string>
     <string name="api_3wifi_settings">API 3WiFi Settings</string>
     <string name="max_points_per_request">Max points per request</string>
     <string name="request_delay_ms">Request delay (ms)</string>
@@ -158,7 +157,6 @@
     <string name="try_alternative_url">Try alternative URL</string>
     <string name="clear_api_cache">Clear API Cache</string>
     <string name="save_api_settings">Save API Settings</string>
-    <string name="ignore_ssl_certificate">Ignore SSL Certificate</string>
     <string name="reset_to_default">Reset to Default</string>
     <string name="developer_settings">Developer Settings</string>
     <string name="dummy_network_mode">Dummy Networks Mode</string>
@@ -1029,6 +1027,7 @@
     <string name="download_notification_channel_description">Notifications for file download progress</string>
     <string name="downloading_file">Downloading file</string>
     <string name="download_error_unknown">Unknown download error</string>
+    <string name="download_error_checksum">Checksum verification failed</string>
     <string name="download_complete">Download Complete</string>
     <string name="file_downloaded_successfully">%s downloaded successfully</string>
     <string name="notification_permission_title">Notification Permission Required</string>

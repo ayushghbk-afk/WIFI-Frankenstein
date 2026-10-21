@@ -321,7 +321,8 @@ class UpdatesViewModel(application: Application) : AndroidViewModel(application)
             context,
             fileInfo.fileName,
             fileInfo.downloadUrl,
-            fileInfo.serverVersion
+            fileInfo.serverVersion,
+            fileInfo.sha256
         )
     }
 
@@ -639,7 +640,8 @@ data class FileUpdateInfo(
     val serverVersion: String,
     val localSize: String,
     val downloadUrl: String,
-    val needsUpdate: Boolean
+    val needsUpdate: Boolean,
+    val sha256: String? = null
 )
 
 data class AppUpdateInfo(

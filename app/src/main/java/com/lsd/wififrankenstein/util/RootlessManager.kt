@@ -59,31 +59,11 @@ class RootlessManager(private val context: Context) {
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(120, TimeUnit.SECONDS)
             .followRedirects(true)
-            .apply {
-                if (Build.VERSION.SDK_INT < 28) {
-                    try {
-                        val trustAll = object : X509TrustManager {
-                            override fun checkClientTrusted(
-                                chain: Array<out X509Certificate>?,
-                                authType: String?
-                            ) {
-                            }
-
-                            override fun checkServerTrusted(
-                                chain: Array<out X509Certificate>?,
-                                authType: String?
-                            ) {
-                            }
-
-                            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                        }
-                        val ssl = SSLContext.getInstance("TLS")
-                        ssl.init(null, arrayOf(trustAll), SecureRandom())
-                        sslSocketFactory(ssl.socketFactory, trustAll)
-                    } catch (_: Exception) {
-                    }
-                }
-            }
+            // Older Android releases do not enable TLS 1.2 by default; opt in explicitly
+            // instead of disabling certificate validation.
+            .connectionSpecs(
+                listOf(okhttp3.ConnectionSpec.MODERN_TLS, okhttp3.ConnectionSpec.CLEARTEXT)
+            )
             .build()
     }
 

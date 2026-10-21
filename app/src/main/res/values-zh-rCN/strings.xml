@@ -146,7 +146,6 @@
     <string name="read_timeout_info">读取超时（毫秒）。</string>
     <string name="cache_results_info">启用结果缓存以减少服务器负载并加快重复请求的速度。</string>
     <string name="try_alternative_url_info">如果请求 api/apiquery 失败，请尝试向 3wifi.php?a=apiquery 发送请求。</string>
-    <string name="ignore_ssl_certificate_info">忽略 SSL 证书信息</string>
     <string name="api_3wifi_settings">API 3WiFi 设置</string>
     <string name="max_points_per_request">每次请求最大点数</string>
     <string name="request_delay_ms">请求延迟（毫秒）</string>
@@ -158,7 +157,6 @@
     <string name="try_alternative_url">尝试备选 URL</string>
     <string name="clear_api_cache">清除 API 缓存</string>
     <string name="save_api_settings">保存 API 设置</string>
-    <string name="ignore_ssl_certificate">忽略 SSL 证书</string>
     <string name="reset_to_default">恢复默认值</string>
     <string name="developer_settings">开发者设置</string>
     <string name="dummy_network_mode">模拟网络模式</string>
@@ -1028,6 +1026,7 @@
     <string name="download_notification_channel_description">文件下载进度的通知</string>
     <string name="downloading_file">正在下载文件</string>
     <string name="download_error_unknown">未知下载错误</string>
+    <string name="download_error_checksum">校验和验证失败</string>
     <string name="download_complete">下载完成</string>
     <string name="file_downloaded_successfully">%s 下载成功</string>
     <string name="notification_permission_title">需要通知权限</string>

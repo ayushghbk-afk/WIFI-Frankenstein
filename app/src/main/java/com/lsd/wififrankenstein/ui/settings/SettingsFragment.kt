@@ -605,7 +605,6 @@ class SettingsFragment : Fragment() {
         binding.editTextAppVersion.setText(viewModel.getAppVersion())
         binding.switchCacheResults.isChecked = viewModel.getCacheResults()
         binding.switchTryAlternativeUrl.isChecked = viewModel.getTryAlternativeUrl()
-        binding.switchIgnoreSSLCertificate.isChecked = viewModel.getIgnoreSSLCertificate()
         binding.switchUsePostMethod.isChecked = viewModel.getUsePostMethod()
         binding.switchIncludeAppIdentifier.isChecked = viewModel.getIncludeAppIdentifier()
 
@@ -646,10 +645,6 @@ class SettingsFragment : Fragment() {
         }
         binding.switchTryAlternativeUrl.setOnLongClickListener {
             showInfoToast(R.string.try_alternative_url_info)
-            true
-        }
-        binding.switchIgnoreSSLCertificate.setOnLongClickListener {
-            showInfoToast(R.string.ignore_ssl_certificate_info)
             true
         }
     }
@@ -716,7 +711,6 @@ class SettingsFragment : Fragment() {
         viewModel.setAppVersion(binding.editTextAppVersion.text.toString())
         viewModel.setCacheResults(binding.switchCacheResults.isChecked)
         viewModel.setTryAlternativeUrl(binding.switchTryAlternativeUrl.isChecked)
-        viewModel.setIgnoreSSLCertificate(binding.switchIgnoreSSLCertificate.isChecked)
 
         Toast.makeText(context, getString(R.string.st_api_settings_saved), Toast.LENGTH_SHORT)
             .show()
@@ -1459,7 +1453,6 @@ class SettingsFragment : Fragment() {
         viewModel.setAppVersion(com.lsd.wififrankenstein.network.ThreeWifiAppClient.DEFAULT_APP_VERSION)
         viewModel.setCacheResults(true)
         viewModel.setTryAlternativeUrl(true)
-        viewModel.setIgnoreSSLCertificate(false)
 
         binding.editTextMaxPoints.setText("99")
         binding.editTextRequestDelay.setText("1000")
@@ -1470,7 +1463,6 @@ class SettingsFragment : Fragment() {
         )
         binding.switchCacheResults.isChecked = true
         binding.switchTryAlternativeUrl.isChecked = true
-        binding.switchIgnoreSSLCertificate.isChecked = false
 
         Toast.makeText(context, getString(R.string.st_api_settings_reset), Toast.LENGTH_SHORT)
             .show()
@@ -1561,9 +1553,6 @@ class SettingsFragment : Fragment() {
         }
         viewModel.tryAlternativeUrl.observe(viewLifecycleOwner) { tryAlt ->
             binding.switchTryAlternativeUrl.isChecked = tryAlt
-        }
-        viewModel.ignoreSSLCertificate.observe(viewLifecycleOwner) { ignoreSSL ->
-            binding.switchIgnoreSSLCertificate.isChecked = ignoreSSL
         }
     }
 

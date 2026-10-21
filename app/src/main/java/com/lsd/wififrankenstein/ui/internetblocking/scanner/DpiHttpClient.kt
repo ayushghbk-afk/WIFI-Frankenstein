@@ -45,6 +45,9 @@ class DpiHttpClient(
         private const val CONNECT_TIMEOUT = 8L
         private const val READ_TIMEOUT = 8L
 
+        // Trust-all TLS is intentional here: this scanner inspects the certificate a
+        // censor/filter presents, so the certificate chain must not abort the probe.
+        // Do not copy this client into code that handles app data.
         private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}

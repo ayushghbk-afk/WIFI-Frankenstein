@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lsd.wififrankenstein.R
 import com.lsd.wififrankenstein.util.Log
@@ -28,14 +29,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.SecureRandom
-import java.security.cert.X509Certificate
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 class DownloadService : Service() {
 
@@ -49,6 +45,7 @@ class DownloadService : Service() {
     companion object {
         private const val TAG = "DownloadService"
         private const val NOTIFICATION_ID = 1001
+        private const val AGGREGATE_NOTIFICATION_ID = 1000
         private const val COMPLETION_NOTIFICATION_BASE_ID = 2000
         private const val CHANNEL_ID = "download_channel"
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 2000L
@@ -62,6 +59,20 @@ class DownloadService : Service() {
         const val EXTRA_FILE_NAME = "file_name"
         const val EXTRA_DOWNLOAD_URL = "download_url"
         const val EXTRA_SERVER_VERSION = "server_version"
+        const val EXTRA_SHA256 = "sha256"
+
+        private const val MAX_REDIRECTS = 5
+        private const val CONNECT_TIMEOUT_MS = 20_000
+        private const val READ_TIMEOUT_MS = 30_000
+        private const val TEMP_SUFFIX = ".part"
+
+        /** Only these extensions may be written into the app's private storage. */
+        private val ALLOWED_EXTENSIONS = setOf(
+            "dic", "db", "sqlite", "sqlite3", "gz", "xz", "zip", "7z",
+            "json", "txt", "csv", "apk"
+        )
+
+        private val SAFE_FILE_NAME = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
         const val BROADCAST_DOWNLOAD_PROGRESS = "download_progress"
         const val BROADCAST_DOWNLOAD_COMPLETE = "download_complete"
@@ -75,15 +86,17 @@ class DownloadService : Service() {
             context: Context,
             fileName: String,
             downloadUrl: String,
-            serverVersion: String
+            serverVersion: String,
+            sha256: String? = null
         ) {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_START_DOWNLOAD
                 putExtra(EXTRA_FILE_NAME, fileName)
                 putExtra(EXTRA_DOWNLOAD_URL, downloadUrl)
                 putExtra(EXTRA_SERVER_VERSION, serverVersion)
+                if (!sha256.isNullOrBlank()) putExtra(EXTRA_SHA256, sha256)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun cancelDownload(context: Context, fileName: String) {
@@ -118,6 +131,10 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // The service is always started with startForegroundService(), so a foreground
+        // notification must be posted immediately - even when notifications are denied.
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START_DOWNLOAD -> {
                 val fileName = intent.getStringExtra(EXTRA_FILE_NAME) ?: return START_NOT_STICKY
@@ -125,9 +142,10 @@ class DownloadService : Service() {
                     intent.getStringExtra(EXTRA_DOWNLOAD_URL) ?: return START_NOT_STICKY
                 val serverVersion =
                     intent.getStringExtra(EXTRA_SERVER_VERSION) ?: return START_NOT_STICKY
+                val sha256 = intent.getStringExtra(EXTRA_SHA256)
 
                 if (!activeDownloads.containsKey(fileName)) {
-                    startDownload(fileName, downloadUrl, serverVersion)
+                    startDownload(fileName, downloadUrl, serverVersion, sha256)
                 }
             }
 
@@ -144,59 +162,29 @@ class DownloadService : Service() {
         return START_STICKY
     }
 
-    private fun startDownload(fileName: String, downloadUrl: String, serverVersion: String) {
+    private fun startDownload(
+        fileName: String,
+        downloadUrl: String,
+        serverVersion: String,
+        sha256: String?
+    ) {
+        val destination = resolveDestination(fileName)
+        if (destination == null) {
+            Log.e(TAG, "Refusing unsafe download target: $fileName")
+            broadcastError(fileName, getString(R.string.download_error_unknown))
+            return
+        }
+
         val job = serviceScope.launch {
+            val tempFile = File(destination.parentFile, destination.name + TEMP_SUFFIX)
             try {
                 showInitialNotification(fileName)
 
-                val file = File(filesDir, fileName)
-                var url = URL(downloadUrl)
-                var connection: HttpsURLConnection? = null
-                var fileSize = -1L
-
-                for (i in 0..5) {
-                    connection = url.openConnection() as HttpsURLConnection
-                    val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
-                        override fun checkClientTrusted(
-                            certs: Array<X509Certificate>,
-                            authType: String
-                        ) {
-                        }
-
-                        override fun checkServerTrusted(
-                            certs: Array<X509Certificate>,
-                            authType: String
-                        ) {
-                        }
-
-                        override fun getAcceptedIssuers() = arrayOf<X509Certificate>()
-                    })
-                    val sslContext =
-                        SSLContext.getInstance("TLS").apply { init(null, trustAll, SecureRandom()) }
-                    connection.sslSocketFactory = sslContext.socketFactory
-                    connection.hostnameVerifier = HostnameVerifier { _, _ -> true }
-                    connection.instanceFollowRedirects = false
-
-                    val responseCode = connection.responseCode
-                    if (responseCode == HttpURLConnection.HTTP_MOVED_PERM || responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
-                        responseCode == HttpURLConnection.HTTP_SEE_OTHER || responseCode == 307 || responseCode == 308
-                    ) {
-                        val redirectUrl = connection.getHeaderField("Location") ?: break
-                        url = URL(url, redirectUrl)
-                        connection.disconnect()
-                        continue
-                    }
-                    fileSize = connection.contentLength.toLong()
-                    break
-                }
-
-                if (connection == null) {
-                    broadcastError(fileName, getString(R.string.download_error_unknown))
-                    return@launch
-                }
+                val connection = openConnection(downloadUrl)
+                val fileSize = connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
 
                 connection.inputStream.use { input ->
-                    FileOutputStream(file).use { output ->
+                    FileOutputStream(tempFile).use { output ->
                         val buffer = ByteArray(8192)
                         var bytesRead: Int
                         var totalBytesRead = 0L
@@ -218,16 +206,35 @@ class DownloadService : Service() {
                     }
                 }
 
-                if (isActive) {
-                    updateFileVersion(fileName, serverVersion)
-                    broadcastComplete(fileName)
-                    cancelNotification(fileName)
-                    showCompletionNotification(fileName)
+                if (!isActive) return@launch
+
+                if (!sha256.isNullOrBlank()) {
+                    val actual = sha256Of(tempFile)
+                    if (!actual.equals(sha256.trim(), ignoreCase = true)) {
+                        Log.e(TAG, "Checksum mismatch for $fileName")
+                        tempFile.delete()
+                        broadcastError(fileName, getString(R.string.download_error_checksum))
+                        cancelNotification(fileName)
+                        return@launch
+                    }
                 }
 
+                if (destination.exists()) destination.delete()
+                if (!tempFile.renameTo(destination)) {
+                    tempFile.copyTo(destination, overwrite = true)
+                    tempFile.delete()
+                }
+
+                updateFileVersion(fileName, serverVersion)
+                broadcastComplete(fileName)
+                cancelNotification(fileName)
+                showCompletionNotification(fileName)
+
             } catch (e: CancellationException) {
+                tempFile.delete()
                 throw e
             } catch (e: Exception) {
+                tempFile.delete()
                 Log.e(TAG, "Download failed for $fileName", e)
                 broadcastError(fileName, e.message ?: getString(R.string.download_error_unknown))
                 cancelNotification(fileName)
@@ -243,6 +250,83 @@ class DownloadService : Service() {
         }
 
         activeDownloads[fileName] = job
+    }
+
+    /**
+     * Maps an untrusted file name onto a file directly inside the app's private storage.
+     * The name arrives from the remote update manifest, so "../" and unexpected extensions
+     * are rejected instead of being interpreted as a path.
+     */
+    private fun resolveDestination(fileName: String): File? {
+        val name = fileName.trim()
+        if (!SAFE_FILE_NAME.matches(name)) return null
+        if (name.contains("..")) return null
+        val extension = name.substringAfterLast('.', "").lowercase()
+        if (extension !in ALLOWED_EXTENSIONS) return null
+        val file = File(filesDir, name)
+        return if (file.canonicalFile.parentFile == filesDir.canonicalFile) file else null
+    }
+
+    /**
+     * Follows redirects manually so every hop can be validated: https only, bounded depth,
+     * and no trust-all TLS configuration.
+     */
+    private fun openConnection(downloadUrl: String): HttpURLConnection {
+        var url = URL(downloadUrl)
+        for (hop in 0..MAX_REDIRECTS) {
+            if (!url.protocol.equals("https", ignoreCase = true)) {
+                throw IllegalArgumentException("Only https downloads are allowed")
+            }
+            val connection = url.openConnection() as? HttpsURLConnection
+                ?: throw IllegalArgumentException("Unexpected connection type")
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+
+            val code = connection.responseCode
+            if (code in 300..399) {
+                val location = connection.getHeaderField("Location")
+                connection.disconnect()
+                if (location.isNullOrBlank()) throw IllegalArgumentException("Redirect without Location")
+                url = URL(url, location)
+                continue
+            }
+            if (code >= 400) {
+                connection.disconnect()
+                throw IllegalArgumentException("HTTP $code")
+            }
+            return connection
+        }
+        throw IllegalArgumentException("Too many redirects")
+    }
+
+    private fun sha256Of(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            var read: Int
+            while (input.read(buffer).also { read = it } > 0) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private var foregroundNotificationShown = false
+
+    private fun ensureForeground() {
+        if (foregroundNotificationShown) return
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_file_download)
+            .setContentTitle(getString(R.string.downloading_file))
+            .setOngoing(true)
+            .build()
+        try {
+            startForeground(AGGREGATE_NOTIFICATION_ID, notification)
+            foregroundNotificationShown = true
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed", e)
+        }
     }
 
     private fun cancelDownload(fileName: String) {

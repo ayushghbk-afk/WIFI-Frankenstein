@@ -107,6 +107,7 @@ class UpdateChecker(private val context: Context) {
                     val fileName = fileInfo.getString("name")
                     val serverVersion = fileInfo.getString("version")
                     val downloadUrl = fileInfo.getString("download_url")
+                    val sha256 = fileInfo.optString("sha256", "").takeIf { it.isNotBlank() }
 
                     val localFile = File(context.filesDir, fileName)
                     val localVersion = getFileVersion(fileName)
@@ -118,7 +119,8 @@ class UpdateChecker(private val context: Context) {
                         serverVersion = serverVersion,
                         localSize = formatFileSize(localSize),
                         downloadUrl = downloadUrl,
-                        needsUpdate = compareVersions(localVersion, serverVersion) < 0
+                        needsUpdate = compareVersions(localVersion, serverVersion) < 0,
+                        sha256 = sha256
                     )
                 } catch (e: Exception) {
                     null

@@ -66,7 +66,6 @@ class API3WiFiViewModel(application: Application) : AndroidViewModel(application
             serverUrl = serverUrl,
             connectTimeout = settingsPrefs.getInt("connectTimeout", 5000),
             readTimeout = settingsPrefs.getInt("readTimeout", 10000),
-            ignoreSSL = settingsPrefs.getBoolean("ignoreSSLCertificate", false),
             includeAppIdentifier = settingsPrefs.getBoolean("includeAppIdentifier", true),
             apiReadKey = readKey,
             apiWriteKey = writeKey

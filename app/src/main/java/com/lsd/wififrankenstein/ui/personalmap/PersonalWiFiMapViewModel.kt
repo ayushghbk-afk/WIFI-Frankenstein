@@ -1567,7 +1567,6 @@ class PersonalWiFiMapViewModel(application: Application) : AndroidViewModel(appl
                         serverUrl = server.path,
                         connectTimeout = 5000,
                         readTimeout = 10000,
-                        ignoreSSL = false,
                         includeAppIdentifier = true,
                         apiReadKey = readKey,
                         apiWriteKey = server.apiWriteKey

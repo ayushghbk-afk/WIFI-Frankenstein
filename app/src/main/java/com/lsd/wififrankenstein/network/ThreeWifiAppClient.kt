@@ -147,29 +147,6 @@ class ThreeWifiAppClient private constructor(
             .writeTimeout(DEFAULT_WRITE_TIMEOUT, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
 
-        if (settings.getBoolean(KEY_IGNORE_SSL, false)) {
-            runCatching {
-                val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
-                    override fun checkClientTrusted(
-                        chain: Array<X509Certificate>,
-                        authType: String
-                    ) {
-                    }
-
-                    override fun checkServerTrusted(
-                        chain: Array<X509Certificate>,
-                        authType: String
-                    ) {
-                    }
-
-                    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                })
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(null, trustAll, java.security.SecureRandom())
-                builder.sslSocketFactory(sslContext.socketFactory, trustAll[0] as X509TrustManager)
-                builder.hostnameVerifier { _, _ -> true }
-            }.onFailure { Log.w(TAG, "Unable to relax TLS checks", it) }
-        }
         return builder.build()
     }
 
@@ -344,7 +321,6 @@ class ThreeWifiAppClient private constructor(
         private const val KEY_APP_VERSION = "appVersion"
         private const val KEY_CONNECT_TIMEOUT = "connectTimeout"
         private const val KEY_READ_TIMEOUT = "readTimeout"
-        private const val KEY_IGNORE_SSL = "ignoreSSLCertificate"
 
         private const val DEFAULT_CONNECT_TIMEOUT = 5000
         private const val DEFAULT_READ_TIMEOUT = 10000

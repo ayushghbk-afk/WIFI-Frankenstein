@@ -136,7 +136,6 @@
     <string name="read_timeout_info">Таймаут читання в мілісекундах.</string>
     <string name="cache_results_info">Увімкнути кешування результатів для зниження навантаження на сервер і прискорення повторних запитів.</string>
     <string name="try_alternative_url_info">Спробувати відправити запит на 3wifi.php?a=apiquery, якщо запит до api/apiquery не вдався.</string>
-    <string name="ignore_ssl_certificate_info">Ігнорувати інформацію SSL сертифікату</string>
     <string name="api_3wifi_settings">Налаштування API 3WiFi</string>
     <string name="max_points_per_request">Макс. точок на запит</string>
     <string name="request_delay_ms">Затримка запиту (мс)</string>
@@ -148,7 +147,6 @@
     <string name="try_alternative_url">Пробувати альтернативний URL</string>
     <string name="clear_api_cache">Очистити API кеш</string>
     <string name="save_api_settings">Зберегти налаштування API</string>
-    <string name="ignore_ssl_certificate">Ігнорувати SSL сертифікат</string>
     <string name="reset_to_default">Скинути на замовчування</string>
     <string name="developer_settings">Налаштування розробника</string>
     <string name="dummy_network_mode">Режим фіктивних мереж</string>
@@ -853,6 +851,7 @@
     <string name="download_notification_channel_description">Сповіщення про хід завантаження файлів</string>
     <string name="downloading_file">Завантаження файлу</string>
     <string name="download_error_unknown">Невідома помилка завантаження</string>
+    <string name="download_error_checksum">Не вдалося перевірити контрольну суму</string>
     <string name="download_complete">Завантаження завершено</string>
     <string name="file_downloaded_successfully">%s успішно завантажено</string>
     <string name="notification_permission_denied_title">Дозвіл на сповіщення відхилено</string>

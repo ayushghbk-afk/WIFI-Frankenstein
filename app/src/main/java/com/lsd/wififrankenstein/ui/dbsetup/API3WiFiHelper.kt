@@ -63,16 +63,10 @@ class API3WiFiHelper(
         get() = sharedPreferences.getBoolean("tryAlternativeUrl", true)
         set(value) = sharedPreferences.edit { putBoolean("tryAlternativeUrl", value) }
 
-    var ignoreSSLCertificate: Boolean
-        get() = sharedPreferences.getBoolean("ignoreSSLCertificate", false)
-        set(value) = sharedPreferences.edit { putBoolean("ignoreSSLCertificate", value) }
 
     class API3WiFiException(val errorCode: String, message: String) : Exception(message)
 
     init {
-        if (ignoreSSLCertificate) {
-            ignoreSSLCertificates()
-        }
     }
 
     suspend fun checkMapApiSupport(): Boolean {
@@ -124,23 +118,6 @@ class API3WiFiHelper(
         }
     }
 
-    private fun ignoreSSLCertificates() {
-        try {
-            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-            })
-
-            val sc = SSLContext.getInstance("TLS")
-            sc.init(null, trustAllCerts, java.security.SecureRandom())
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.socketFactory)
-
-            HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
-        } catch (e: Exception) {
-            Log.e("API3WiFiHelper", "Error setting up SSL", e)
-        }
-    }
 
     suspend fun searchNetworksByBSSIDs(bssids: List<String>): Map<String, List<Map<String, Any?>>> {
         return withContext(Dispatchers.IO) {

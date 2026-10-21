@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lsd.wififrankenstein.R
 import com.lsd.wififrankenstein.util.ChrootManager
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 class ChrootInstallService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var foregroundStarted = false
     private val notificationManager by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
     private lateinit var chrootManager: ChrootManager
     private var installationJob: Job? = null
@@ -56,14 +58,14 @@ class ChrootInstallService : Service() {
             val intent = Intent(context, ChrootInstallService::class.java).apply {
                 action = ACTION_START_INSTALL
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun cancelInstallation(context: Context) {
             val intent = Intent(context, ChrootInstallService::class.java).apply {
                 action = ACTION_CANCEL_INSTALL
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -75,7 +77,20 @@ class ChrootInstallService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Intents arrive through ContextCompat.startForegroundService() (install and cancel alike),
+     * so the notification must be posted before dispatch - startInstallation() can return early
+     * when an installation is already running, and cancelInstallation() posts nothing at all.
+     */
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        showInitialNotification()
+        foregroundStarted = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START_INSTALL -> startInstallation()
             ACTION_CANCEL_INSTALL -> cancelInstallation()
@@ -156,6 +171,7 @@ class ChrootInstallService : Service() {
     }
 
     private fun showInitialNotification() {
+        foregroundStarted = true
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_system_update)
             .setContentTitle(getString(R.string.chroot_installation_title))

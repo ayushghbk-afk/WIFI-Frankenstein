@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lsd.wififrankenstein.MainActivity
 import com.lsd.wififrankenstein.R
@@ -41,6 +42,7 @@ class NetProtectionService : Service() {
     private var notificationPriority = NotificationManager.IMPORTANCE_LOW
 
     private var isRunning = false
+    private var foregroundStarted = false
     private var arpIntervalMs = ARP_INTERVAL
     private var portScanIntervalMs = PORT_SCAN_INTERVAL
 
@@ -106,14 +108,14 @@ class NetProtectionService : Service() {
             val intent = Intent(context, NetProtectionService::class.java).apply {
                 action = ACTION_START
             }
-            androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, NetProtectionService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun updateConfig(
@@ -132,7 +134,7 @@ class NetProtectionService : Service() {
                 putExtra(EXTRA_NOTIFICATION_HIDDEN, notificationHidden)
                 putExtra(EXTRA_NOTIFICATION_PRIORITY, notificationPriority)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -143,7 +145,18 @@ class NetProtectionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(getString(R.string.app_name), getString(R.string.svc_starting))
+        )
+        foregroundStarted = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START -> handleStart()
             ACTION_STOP -> handleStop()

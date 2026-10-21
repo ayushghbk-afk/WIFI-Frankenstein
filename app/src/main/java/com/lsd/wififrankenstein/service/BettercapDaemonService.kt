@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lsd.wififrankenstein.MainActivity
 import com.lsd.wififrankenstein.R
@@ -31,6 +32,8 @@ import kotlinx.coroutines.withContext
 class BettercapDaemonService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var foregroundStarted = false
+
     private val notificationManager by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
     private lateinit var bettercapManager: BettercapManager
     private lateinit var client: BettercapClient
@@ -55,14 +58,14 @@ class BettercapDaemonService : Service() {
                 putExtra(EXTRA_IFACE, iface)
                 putExtra(EXTRA_CHANNEL_MODE, channelMode)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, BettercapDaemonService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -75,7 +78,27 @@ class BettercapDaemonService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Every intent arrives through ContextCompat.startForegroundService() - including cancel and
+     * stop actions - and the platform kills the process if startForeground() is not called
+     * within five seconds. Post a neutral notification at the very top of onStartCommand(),
+     * because the individual branches can return early (bad extras, nothing to cancel, ...).
+     */
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.app_name),
+                getString(R.string.svc_starting)
+            ).build()
+        )
+        foregroundStarted = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START -> {
                 val iface = intent.getStringExtra(EXTRA_IFACE) ?: "wlan0"

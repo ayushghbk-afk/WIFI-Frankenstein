@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lsd.wififrankenstein.MainActivity
 import com.lsd.wififrankenstein.R
@@ -36,6 +37,8 @@ enum class ChrootAttackType {
 class ChrootAttackService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var foregroundStarted = false
+
     private val notificationManager by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
     private var attackJob: Job? = null
     private var runner: Any? = null
@@ -123,7 +126,7 @@ class ChrootAttackService : Service() {
                 ssid?.let { putExtra(EXTRA_SSID, it) }
                 freq?.let { putExtra(EXTRA_FREQ, it) }
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun startRouterScan(
@@ -143,14 +146,14 @@ class ChrootAttackService : Service() {
                 putExtra(EXTRA_RS_TIMEOUT, rsTimeout)
                 putExtra(EXTRA_PING_BEFORE_SCAN, pingBeforeScan)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun cancelAttack(context: Context) {
             val intent = Intent(context, ChrootAttackService::class.java).apply {
                 action = ACTION_CANCEL
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -161,7 +164,27 @@ class ChrootAttackService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Every intent arrives through ContextCompat.startForegroundService() - including cancel and
+     * stop actions - and the platform kills the process if startForeground() is not called
+     * within five seconds. Post a neutral notification at the very top of onStartCommand(),
+     * because the individual branches can return early (bad extras, nothing to cancel, ...).
+     */
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.app_name),
+                getString(R.string.svc_starting)
+            ).build()
+        )
+        foregroundStarted = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START -> handleStartAttack(intent)
             ACTION_CANCEL -> handleCancelAttack()

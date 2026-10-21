@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lsd.wififrankenstein.MainActivity
 import com.lsd.wififrankenstein.R
@@ -35,6 +36,8 @@ enum class AttackType {
 class ForegroundAttackService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var foregroundStarted = false
+
     private val notificationManager by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
     private var attackJob: Job? = null
 
@@ -70,7 +73,7 @@ class ForegroundAttackService : Service() {
                 putExtra(EXTRA_BSSID, bssid)
                 putExtra(EXTRA_INTERFACE, iface)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun startCustomPin(context: Context, bssid: String, pin: String, iface: String = "wlan0") {
@@ -81,7 +84,7 @@ class ForegroundAttackService : Service() {
                 putExtra(EXTRA_PIN, pin)
                 putExtra(EXTRA_INTERFACE, iface)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun startPskBruteForce(context: Context, ssid: String, bssid: String, wordlistUri: String) {
@@ -92,7 +95,7 @@ class ForegroundAttackService : Service() {
                 putExtra(EXTRA_BSSID, bssid)
                 putExtra(EXTRA_WORDLIST_URI, wordlistUri)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun startNativePskBruteForce(
@@ -108,14 +111,14 @@ class ForegroundAttackService : Service() {
                 putExtra(EXTRA_BSSID, bssid)
                 putExtra(EXTRA_WORDLIST_URI, wordlistUri)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun cancelAttack(context: Context) {
             val intent = Intent(context, ForegroundAttackService::class.java).apply {
                 action = ACTION_CANCEL_ATTACK
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -126,7 +129,27 @@ class ForegroundAttackService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Every intent arrives through ContextCompat.startForegroundService() - including cancel and
+     * stop actions - and the platform kills the process if startForeground() is not called
+     * within five seconds. Post a neutral notification at the very top of onStartCommand(),
+     * because the individual branches can return early (bad extras, nothing to cancel, ...).
+     */
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.app_name),
+                getString(R.string.svc_starting)
+            ).build()
+        )
+        foregroundStarted = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START_ATTACK -> handleStartAttack(intent)
             ACTION_CANCEL_ATTACK -> handleCancelAttack()

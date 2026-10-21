@@ -49,6 +49,7 @@ class WpaCrackService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val notificationManager by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
+    private var foregroundStarted = false
     private var crackJob: Job? = null
     private var runner: PskOfflineBruteForceRunner? = null
     private var sessionHandshakeLine: String = ""
@@ -114,14 +115,14 @@ class WpaCrackService : Service() {
                 putExtra(EXTRA_HANDSHAKE_LINE, handshakeLine)
                 putExtra(EXTRA_WORDLIST_URI, wordlistUri)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stopChrootCrack(context: Context) {
             val intent = Intent(context, WpaCrackService::class.java).apply {
                 action = ACTION_STOP_CHROOT_CRACK
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun startMaskOrDictCrack(
@@ -161,28 +162,28 @@ class WpaCrackService : Service() {
                 putExtra(EXTRA_OFFSET, offset)
                 putExtra(EXTRA_TOTAL_LINES, totalLines)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun pauseCrack(context: Context) {
             val intent = Intent(context, WpaCrackService::class.java).apply {
                 action = ACTION_PAUSE_CRACK
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun resumeCrack(context: Context) {
             val intent = Intent(context, WpaCrackService::class.java).apply {
                 action = ACTION_RESUME_CRACK
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stopCrack(context: Context) {
             val intent = Intent(context, WpaCrackService::class.java).apply {
                 action = ACTION_STOP_CRACK
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun updateNotification(context: Context, progress: OfflineProgress, isPaused: Boolean) {
@@ -200,7 +201,7 @@ class WpaCrackService : Service() {
                 putExtra(EXTRA_OFFSET, progress.offset)
                 putExtra(EXTRA_TOTAL_LINES, progress.totalPasswords)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 
@@ -213,7 +214,27 @@ class WpaCrackService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun ensureForeground() {
+        if (foregroundStarted) return
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.app_name),
+                getString(R.string.svc_starting),
+                false,
+                "",
+                0,
+                0.0,
+                0,
+                0
+            ).build()
+        )
+        foregroundStarted = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         when (intent?.action) {
             ACTION_START_CRACK -> handleStartCrack(intent)
             ACTION_PAUSE_CRACK -> handlePauseCrack()

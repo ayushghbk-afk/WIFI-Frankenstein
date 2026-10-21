@@ -104,14 +104,14 @@ class DownloadService : Service() {
                 action = ACTION_CANCEL_DOWNLOAD
                 putExtra(EXTRA_FILE_NAME, fileName)
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun cancelAllDownloads(context: Context) {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_CANCEL_ALL_DOWNLOADS
             }
-            context.startService(intent)
+            ContextCompat.startForegroundService(context, intent)
         }
 
         @Volatile

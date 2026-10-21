@@ -40,6 +40,28 @@ Legend: **S1** = security-critical, **S2** = data loss / wrong output, **S3** = 
 
 ---
 
+---
+
+## Fix status
+
+Every finding below has been fixed on `arena/aec45c7a-wifi-frankenstein`, one commit per finding (or per
+closely-related group), on top of `4d85d27`. Nothing could be compiled or run here (no JDK/Gradle/Android SDK),
+so each fix was verified statically and, where the bug was pure logic, by re-implementing the algorithm in
+Python.
+
+| Findings | Commit | Subject |
+|---|---|---|
+| 1 | `211815e` | remove trust-all TLS helper (`util/SslHelper.kt` deleted, 15 call sites) |
+| 2 | `9937263` | `NetworkClient`: drop trust-all OkHttp client and hardcoded GitHub IPs |
+| 3 | `c906c93` | `DownloadService`: https-only, redirect/destination hygiene, sha256, atomic `.part` rename; per-client trust-all removed from 6 helpers, settings switch gone |
+| 4 | `361dac1` | `network_security_config.xml`: credential/update/RIR hosts are https-only |
+| 5, 6, 7, 8, 11, 12, 13, 20, 23 | `9357d53` | `HandshakeParser`: `.22000` type codes, hccapx ESSID length, multi-record hccapx, PMKID text, bounded sniffing, strict hex, tri-state `verifyPassword()` with real EAPOL MIC check |
+| 10 | `d0be396` | `PcapParser`: nanosecond magics, RSN PMKID at the correct offset, 2.4/5/6 GHz channel mapping |
+| 9, 16, 17, 19, 21, 22 | `4371bfe` | mask literal ordering, version comparison, `LIKELY_SUPPORTED` value + string, distance localisation/NaN, `GlobalScope`, `SSS` timestamp |
+| 14 | `c450eea` | `QuadkeyUtils.quadkeyToTileXY()` is now the inverse of `latLonToQuadkey()` |
+| 15 | `a53c46d` | `WiFiChannelAnalyzer`: 6 GHz band and numbering, channel 144, co-channel interference |
+| 18 | `9eb60a8` | every companion helper uses `startForegroundService()` and each service posts its notification before dispatch |
+
 ## S1 — Security
 
 ### 1. TLS verification is disabled app-wide (`util/SslHelper.kt:15-35`)

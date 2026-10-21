@@ -32,18 +32,18 @@ object QuadkeyUtils {
     }
 
     fun quadkeyToTileXY(quadkey: Long, zoom: Int = MAX_ZOOM): Pair<Int, Int> {
-        var qk = quadkey
         var tileX = 0
         var tileY = 0
 
-        for (i in 0 until zoom) {
-            val xBit = (qk and 1L).toInt()
-            val yBit = ((qk ushr 1) and 1L).toInt()
+        // latLonToQuadkey() stores the coarsest level in the most significant bits
+        // (Bing order), so decoding has to start at the top of the quadkey too.
+        for (level in 0 until zoom) {
+            val shift = 2 * (zoom - 1 - level)
+            val xBit = ((quadkey ushr shift) and 1L).toInt()
+            val yBit = ((quadkey ushr (shift + 1)) and 1L).toInt()
 
             tileX = (tileX shl 1) or xBit
             tileY = (tileY shl 1) or yBit
-
-            qk = qk ushr 2
         }
 
         return Pair(tileX, tileY)
